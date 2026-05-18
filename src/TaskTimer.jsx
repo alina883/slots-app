@@ -344,6 +344,27 @@ const css = `
   .btn-alarm-interrupt{background:var(--orange-light);border:1.5px solid var(--orange);color:var(--orange);border-radius:14px;padding:13px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;font-family:'DM Sans',sans-serif;}
   .loading{display:flex;align-items:center;justify-content:center;height:100dvh;font-size:14px;color:var(--muted);}
   .db-error{background:#fdf1f0;border:1px solid #f5c4c0;border-radius:10px;padding:14px 16px;margin:16px 20px;font-size:13px;color:var(--red);line-height:1.5;}
+
+  /* PLAN MY WEEK */
+  .btn-plan{width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:11px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:6px;}
+  .btn-plan:active{background:var(--surface);}
+  .cal-loading{text-align:center;color:var(--muted);font-size:13px;padding:30px 0;}
+  .cal-error{background:#fdf1f0;border:1px solid #f5c4c0;border-radius:10px;padding:14px;font-size:13px;color:var(--red);line-height:1.6;margin-bottom:12px;}
+  .cal-connect-btn{width:100%;background:var(--red);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .cal-event{margin-bottom:16px;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  .cal-event-header{padding:10px 14px;background:var(--surface);}
+  .cal-event-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;}
+  .cal-event-time{font-size:11px;color:var(--muted);}
+  .cal-event-seq{padding:4px 0;}
+  .cal-task-row{display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid var(--border);cursor:pointer;}
+  .cal-task-row:active{background:var(--surface);}
+  .cal-task-check{width:18px;height:18px;border-radius:5px;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;transition:all .15s;}
+  .cal-task-check.checked{background:var(--green);border-color:var(--green);color:#fff;}
+  .cal-task-name{flex:1;font-size:13px;font-weight:500;}
+  .cal-task-time{font-size:11px;color:var(--muted);white-space:nowrap;}
+  .cal-no-seq{padding:10px 14px;font-size:12px;color:var(--muted);font-style:italic;}
+  .cal-section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:8px 0 4px;}
+  .btn-add-cal-tasks{width:100%;background:var(--green);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-top:4px;}
 `;
 
 // ── MAIN ──────────────────────────────────────────────────────────
@@ -388,6 +409,13 @@ export default function TaskTimer() {
   const [alarmOn, setAlarmOn]     = useState(false);
   const alarmRef                  = useRef(null);
   const sessionStartRef           = useRef(null);
+
+  // calendar / plan my week
+  const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState("");
+  const [selectedEventTasks, setSelectedEventTasks] = useState({}); // eventId -> bool[] of which tasks are checked
 
   // quick capture
   const [quickInput, setQuickInput] = useState("");
@@ -505,7 +533,7 @@ export default function TaskTimer() {
       if (match) { setSeqData({ seq: match.seq, originalName: name }); setTaskInput(""); return; }
     }
     showSync("Saving…", "saving", 0);
-    const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_slots: slotsOverride ?? newSlots, slot_minutes: slotMinsOverride ?? slotType, actual_slots: 0, done: false, partial: false, sequence_key: seqKey || null });
+    const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_slots: 1, slot_minutes: 15, actual_slots: 0, done: false, partial: false, sequence_key: null });
     if (saved) { setTasks(prev => [...prev, saved]); showSync("✓ Saved", "ok"); }
     if (!nameOverride) { setTaskInput(""); setNewSlots(1); }
   }
@@ -653,6 +681,84 @@ const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_s
     setRecurringPrompt(null);
     // If next due is today, spawn it now
     if (nextDue === todayStr()) await spawnRecurringTask(rec, nextDue);
+  }
+
+  // ── CALENDAR / PLAN MY WEEK ──────────────────────────────────
+  const FUNCTION_URL = "https://cdzanvtkqkyexljvovan.supabase.co/functions/v1/google-calendar";
+  const ANON_KEY     = "sb_publishable_IgUV3oZYjYrtvkJUa33aEg_5FD9vJ2B";
+
+  async function openPlanMyWeek() {
+    setCalendarOpen(true);
+    setCalendarLoading(true);
+    setCalendarError("");
+    setCalendarEvents([]);
+    setSelectedEventTasks({});
+    try {
+      const res  = await fetch(`${FUNCTION_URL}?action=events`, { headers: { Authorization: `Bearer ${ANON_KEY}` } });
+      const data = await res.json();
+      if (data.error === "NOT_CONNECTED") {
+        setCalendarError("NOT_CONNECTED");
+        setCalendarLoading(false);
+        return;
+      }
+      if (data.error) throw new Error(data.error);
+      const eventsWithSeq = data.events.filter(e => !e.allDay || e.sequence);
+      setCalendarEvents(data.events);
+      // Pre-select all suggested tasks for events that have sequences
+      const initial = {};
+      data.events.forEach(e => {
+        if (e.sequence) {
+          initial[e.id] = e.sequence.tasks.map(() => true);
+        }
+      });
+      setSelectedEventTasks(initial);
+    } catch(err) {
+      setCalendarError(err.message);
+    }
+    setCalendarLoading(false);
+  }
+
+  function toggleEventTask(eventId, idx) {
+    setSelectedEventTasks(prev => ({
+      ...prev,
+      [eventId]: prev[eventId].map((v, i) => i === idx ? !v : v),
+    }));
+  }
+
+  async function addCalendarTasks() {
+    const toAdd = [];
+    calendarEvents.forEach(event => {
+      if (!event.sequence) return;
+      const checks = selectedEventTasks[event.id] || [];
+      event.sequence.tasks.forEach((task, idx) => {
+        if (checks[idx]) {
+          toAdd.push({
+            name: `${task.name} (${event.title})`,
+            mode: "deadline",
+            bucket: selectedBucket,
+            estimated_slots: task.slots,
+            slot_minutes: task.slotMinutes,
+            actual_slots: 0,
+            done: false,
+            partial: false,
+            sequence_key: "calendar",
+          });
+        }
+      });
+    });
+    if (!toAdd.length) { setCalendarOpen(false); return; }
+    showSync("Saving…", "saving", 0);
+    const { data, error } = await supabase.from("tasks").insert(toAdd).select();
+    if (!error && data) { setTasks(prev => [...prev, ...data]); showSync(`✓ Added ${data.length} tasks`, "ok"); }
+    else showSync("Save failed", "err");
+    setCalendarOpen(false);
+  }
+
+  function formatEventTime(start, allDay) {
+    if (allDay) return "All day";
+    const d = new Date(start);
+    return d.toLocaleDateString("en-GB", { weekday: "short", month: "short", day: "numeric" }) +
+      " · " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
 
   // ── RENDER ───────────────────────────────────────────────────
@@ -811,7 +917,83 @@ const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_s
             </div>
           </div>
           
+          <button className="btn-plan" onClick={openPlanMyWeek}>📅 Plan my week</button>
           <button className={`btn-add${mode==="open"?" open":""}`} onClick={()=>addTask()}>+ Add Task</button>
+        </div>
+
+        {/* PLAN MY WEEK SHEET */}
+        <div className={`sheet-backdrop${calendarOpen?"":" hidden"}`} onClick={e=>e.target===e.currentTarget&&setCalendarOpen(false)}>
+          <div className="sheet">
+            <div className="sheet-title">📅 Plan my week</div>
+            <div className="sheet-sub">Your calendar events for the next 7 days. Tap tasks to add them to your list.</div>
+
+            {calendarLoading && <div className="cal-loading">Fetching your calendar…</div>}
+
+            {calendarError === "NOT_CONNECTED" && (
+              <div>
+                <div className="cal-error">Your Google Calendar isn't connected yet. Tap below to connect it.</div>
+                <a href="https://cdzanvtkqkyexljvovan.supabase.co/functions/v1/google-calendar?action=auth">
+                  <button className="cal-connect-btn">Connect Google Calendar</button>
+                </a>
+              </div>
+            )}
+
+            {calendarError && calendarError !== "NOT_CONNECTED" && (
+              <div className="cal-error">⚠️ {calendarError}</div>
+            )}
+
+            {!calendarLoading && !calendarError && calendarEvents.length > 0 && (
+              <>
+                {/* Events with sequences first */}
+                {calendarEvents.filter(e => e.sequence).length > 0 && (
+                  <>
+                    <div className="cal-section-label">✨ Suggested prep tasks</div>
+                    {calendarEvents.filter(e => e.sequence).map(event => (
+                      <div key={event.id} className="cal-event">
+                        <div className="cal-event-header">
+                          <div className="cal-event-title">{event.title}</div>
+                          <div className="cal-event-time">{formatEventTime(event.start, event.allDay)}</div>
+                        </div>
+                        <div className="cal-event-seq">
+                          {event.sequence.tasks.map((task, idx) => {
+                            const checked = selectedEventTasks[event.id]?.[idx] ?? true;
+                            return (
+                              <div key={idx} className="cal-task-row" onClick={() => toggleEventTask(event.id, idx)}>
+                                <div className={`cal-task-check${checked?" checked":""}`}>{checked?"✓":""}</div>
+                                <span className="cal-task-name">{task.name}</span>
+                                <span className="cal-task-time">{task.slots > 1 ? `${task.slots} × ` : ""}{task.slotMinutes}min</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+
+                {/* All events for reference */}
+                <div className="cal-section-label">📆 All events this week</div>
+                {calendarEvents.map(event => (
+                  <div key={event.id} style={{padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                    <div style={{fontSize:13,fontWeight:600}}>{event.title}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>{formatEventTime(event.start, event.allDay)}</div>
+                  </div>
+                ))}
+
+                <button className="btn-add-cal-tasks" onClick={addCalendarTasks}>
+                  Add selected tasks to my list
+                </button>
+              </>
+            )}
+
+            {!calendarLoading && !calendarError && calendarEvents.length === 0 && (
+              <div style={{textAlign:"center",color:"var(--muted)",fontSize:13,padding:"30px 0"}}>No events found in the next 7 days</div>
+            )}
+
+            <div className="sheet-actions" style={{marginTop:12}}>
+              <button className="btn-sheet-cancel" onClick={()=>setCalendarOpen(false)}>Close</button>
+            </div>
+          </div>
         </div>
 
         {/* SEQUENCE SHEET */}

@@ -167,7 +167,7 @@ const css = `
     --radius:14px;
   }
   body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);}
-  .app{display:flex;flex-direction:column;min-height:100dvh;max-width:480px;margin:0 auto;}
+  .app{display:flex;flex-direction:column;min-height:100dvh;width:100%;max-width:480px;margin:0 auto;background:var(--bg);}
 
   /* HEADER */
   .header{padding:14px 20px 10px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;}
@@ -1000,24 +1000,31 @@ export default function TaskTimer() {
                   <button className="btn-set" onClick={applyDeadline}>Set</button>
                 </div>
               )}
-              <div className="slots-avail"><strong>{slots15}</strong> × 15min &nbsp;·&nbsp; <strong>{slots5}</strong> × 5min left</div>
+              <div className="slots-avail"><strong>{slots5}</strong> × 5min &nbsp;·&nbsp; <strong>{Math.round(availMins)}</strong>min left</div>
             </div>
-            <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              <div className={`sync-status${syncType ? " "+syncType : ""}`}>{syncStatus || "● Live"}</div>
-              <button
-                onClick={() => setActiveDay(activeDay==="pool" ? (weekDays.includes(today) ? today : weekDays[0]) : "pool")}
-                style={{
-                  background: activeDay==="pool" ? "var(--purple)" : "var(--surface)",
-                  color: activeDay==="pool" ? "#fff" : "var(--purple)",
-                  border: "1.5px solid var(--purple)",
-                  borderRadius: 8, padding: "4px 10px",
-                  fontSize: 11, fontWeight: 700, cursor: "pointer",
-                  fontFamily: "'Inter',sans-serif",
-                  display: "flex", alignItems: "center", gap: 4,
-                }}
-              >
-                Pool {tabCount("pool") > 0 && <span style={{background:"rgba(0,0,0,.15)",borderRadius:99,fontSize:9,padding:"0 4px"}}>{tabCount("pool")}</span>}
-              </button>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
+              {/* Slot countdown */}
+              <div style={{textAlign:"right"}}>
+                <div style={{fontSize:22,fontWeight:700,color:"var(--red)",lineHeight:1}}>{slots15}</div>
+                <div style={{fontSize:9,color:"var(--muted)",fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>15min slots</div>
+              </div>
+              <div style={{display:"flex",gap:4,alignItems:"center"}}>
+                <div className={`sync-status${syncType ? " "+syncType : ""}`} style={{fontSize:9}}>{syncStatus || "● live"}</div>
+                <button
+                  onClick={() => setActiveDay(activeDay==="pool" ? (weekDays.includes(today) ? today : weekDays[0]) : "pool")}
+                  style={{
+                    background: activeDay==="pool" ? "var(--purple)" : "var(--surface)",
+                    color: activeDay==="pool" ? "#fff" : "var(--purple)",
+                    border: "1.5px solid var(--purple)",
+                    borderRadius: 6, padding: "3px 8px",
+                    fontSize: 10, fontWeight: 700, cursor: "pointer",
+                    fontFamily: "'Inter',sans-serif",
+                    display: "flex", alignItems: "center", gap: 3,
+                  }}
+                >
+                  Pool {tabCount("pool") > 0 && <span style={{background:"rgba(0,0,0,.15)",borderRadius:99,fontSize:9,padding:"0 3px"}}>{tabCount("pool")}</span>}
+                </button>
+              </div>
             </div>
           </div>
           {activeDay !== "pool" && (

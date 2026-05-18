@@ -1,10 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// ── SUPABASE ──────────────────────────────────────────────────────
-const SUPABASE_URL  = "https://cdzanvtkqkyexljvovan.supabase.co";
-const SUPABASE_KEY  = "sb_publishable_IgUV3oZYjYrtvkJUa33aEg_5FD9vJ2B";
-const supabase      = createClient(SUPABASE_URL, SUPABASE_KEY);
+const SUPABASE_URL = "https://cdzanvtkqkyexljvovan.supabase.co";
+const SUPABASE_KEY = "sb_publishable_IgUV3oZYjYrtvkJUa33aEg_5FD9vJ2B";
+const supabase     = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ── SEQUENCES ─────────────────────────────────────────────────────
 const SEQUENCES = {
@@ -49,11 +48,11 @@ const SEQUENCES = {
     keywords: ["cook dinner","cook lunch","cook breakfast","make dinner","make lunch","make breakfast","prepare meal","cook a meal"],
     singleTask: { name: "Cook dinner", slotMinutes: 15, slots: 2 },
     steps: [
-      { name: "Plan what to cook",  slotMinutes: 5,  slots: 1 },
-      { name: "Prep ingredients",   slotMinutes: 15, slots: 1 },
-      { name: "Cook",               slotMinutes: 15, slots: 2 },
-      { name: "Serve & eat",        slotMinutes: 15, slots: 1 },
-      { name: "Clear up kitchen",   slotMinutes: 15, slots: 1 },
+      { name: "Plan what to cook", slotMinutes: 5,  slots: 1 },
+      { name: "Prep ingredients",  slotMinutes: 15, slots: 1 },
+      { name: "Cook",              slotMinutes: 15, slots: 2 },
+      { name: "Serve & eat",       slotMinutes: 15, slots: 1 },
+      { name: "Clear up kitchen",  slotMinutes: 15, slots: 1 },
     ],
   },
 };
@@ -68,7 +67,20 @@ function detectSequence(name) {
 
 // ── HELPERS ───────────────────────────────────────────────────────
 function pad(n) { return String(n).padStart(2, "0"); }
-function fmtTime(secs) { return `${pad(Math.floor(secs/60))}:${pad(secs%60)}`; }
+function fmtTime(s) { return `${pad(Math.floor(s/60))}:${pad(s%60)}`; }
+function todayStr() { return new Date().toISOString().slice(0,10); }
+function addDays(dateStr, n) {
+  const d = new Date(dateStr); d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0,10);
+}
+function nextDueDate(frequency, intervalDays) {
+  const today = todayStr();
+  if (frequency === "daily")   return addDays(today, 1);
+  if (frequency === "weekly")  return addDays(today, 7);
+  if (frequency === "monthly") return addDays(today, 30);
+  if (frequency === "custom")  return addDays(today, intervalDays || 1);
+  return addDays(today, 1);
+}
 
 function useInterval(cb, delay) {
   const saved = useRef(cb);
@@ -80,10 +92,65 @@ function useInterval(cb, delay) {
   }, [delay]);
 }
 
+// ── SWIPEABLE CARD ────────────────────────────────────────────────
+function SwipeCard({ onSwipeLeft, onSwipeRight, children, disabled }) {
+  const startX    = useRef(null);
+  const [offset, setOffset] = useState(0);
+  const [action, setAction] = useState(null); // 'delete' | 'edit' | null
+
+  function onTouchStart(e) {
+    if (disabled) return;
+    startX.current = e.touches[0].clientX;
+    setAction(null);
+  }
+
+  function onTouchMove(e) {
+    if (startX.current === null || disabled) return;
+    const dx = e.touches[0].clientX - startX.current;
+    const clamped = Math.max(-90, Math.min(90, dx));
+    setOffset(clamped);
+    if (clamped < -40)      setAction("delete");
+    else if (clamped > 40)  setAction("edit");
+    else                    setAction(null);
+  }
+
+  function onTouchEnd() {
+    if (startX.current === null) return;
+    if (action === "delete") { onSwipeLeft?.(); }
+    if (action === "edit")   { onSwipeRight?.(); }
+    setOffset(0); setAction(null); startX.current = null;
+  }
+
+  const bg = action === "delete" ? "var(--red)" : action === "edit" ? "var(--purple)" : "transparent";
+
+  return (
+    <div style={{ position:"relative", borderRadius:14, overflow:"hidden" }}>
+      {/* Swipe hint background */}
+      <div style={{
+        position:"absolute", inset:0, background:bg,
+        display:"flex", alignItems:"center",
+        justifyContent: action === "delete" ? "flex-end" : "flex-start",
+        padding:"0 20px", transition:"background .15s",
+        color:"#fff", fontSize:13, fontWeight:700,
+      }}>
+        {action === "delete" && "🗑 Delete"}
+        {action === "edit"   && "✏️ Edit"}
+      </div>
+      <div
+        style={{ transform:`translateX(${offset}px)`, transition: offset===0 ? "transform .3s ease" : "none", position:"relative" }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
 // ── CSS ───────────────────────────────────────────────────────────
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
-
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
     --bg:#fafaf8;--surface:#f0efea;--border:#e2e0d8;
@@ -95,7 +162,6 @@ const css = `
     --radius:14px;
   }
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);}
-
   .app{display:flex;flex-direction:column;min-height:100dvh;max-width:480px;margin:0 auto;}
 
   /* HEADER */
@@ -105,21 +171,17 @@ const css = `
   .mode-tab{padding:4px 14px;border-radius:99px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);transition:all .15s;}
   .mode-tab.deadline{background:var(--red);color:#fff;border-color:var(--red);}
   .mode-tab.open{background:var(--purple);color:#fff;border-color:var(--purple);}
-
   .deadline-row{display:flex;align-items:center;gap:8px;}
   .countdown{font-family:'Syne',sans-serif;font-size:36px;font-weight:800;line-height:1;color:var(--red);}
-  .countdown.open{color:var(--purple);font-size:20px;font-weight:700;}
+  .countdown.open-mode{color:var(--purple);font-size:20px;font-weight:700;}
   .countdown.urgent{animation:pulse .9s ease-in-out infinite;}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  .btn-change{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;}
-
+  .btn-change{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;}
   .deadline-picker{display:flex;align-items:center;gap:8px;margin-top:6px;}
   .deadline-picker input{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--text);outline:none;}
   .btn-set{background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;}
-
   .slots-avail{font-size:11px;color:var(--muted);margin-top:3px;}
   .slots-avail strong{color:var(--text);}
-
   .budget-row{display:flex;align-items:center;gap:10px;}
   .budget-bar{flex:1;height:5px;background:var(--border);border-radius:99px;overflow:hidden;}
   .budget-fill{height:100%;border-radius:99px;background:var(--red);transition:width .4s ease,background .3s;}
@@ -127,31 +189,27 @@ const css = `
   .budget-fill.open-fill{background:var(--purple);}
   .budget-text{font-size:11px;color:var(--muted);white-space:nowrap;}
   .budget-text strong{color:var(--text);}
-
-  .drive-btns{display:flex;gap:5px;flex-shrink:0;}
-  .btn-drive{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:11px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;font-family:'DM Sans',sans-serif;}
-  .btn-drive:active{background:var(--border);}
   .sync-status{font-size:10px;color:var(--muted);margin-top:2px;text-align:right;min-height:13px;}
   .sync-status.ok{color:var(--green);}
   .sync-status.err{color:var(--red);}
-  .sync-status.saving{color:var(--orange);}
+  .swipe-hint{font-size:10px;color:var(--muted);text-align:center;margin-top:4px;letter-spacing:.02em;}
 
   /* TASK LIST */
   .task-list{flex:1;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:7px;}
   .section-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:6px 0 2px;}
-
   .task-card{background:#fff;border:1.5px solid var(--border);border-radius:var(--radius);padding:11px 13px;display:flex;align-items:center;gap:10px;transition:border-color .2s,background .2s;}
   .task-card.is-active{border-color:var(--red);background:var(--red-light);}
   .task-card.is-done{border-color:#c8e8d4;opacity:.55;}
   .task-card.is-done .task-name{text-decoration:line-through;color:var(--muted);}
   .task-card.is-partial{border-color:var(--orange);background:var(--orange-light);}
   .task-card.is-open{border-color:#cfc6f7;}
-
+  .task-card.is-recurring{border-left:3px solid var(--green);}
   .task-info{flex:1;min-width:0;}
   .task-name-row{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
   .partial-icon{font-size:15px;animation:wobble 2.5s ease-in-out infinite;}
   @keyframes wobble{0%,100%{transform:rotate(0)}20%{transform:rotate(-12deg)}40%{transform:rotate(9deg)}60%{transform:rotate(-5deg)}80%{transform:rotate(3deg)}}
   .task-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .recurring-icon{font-size:11px;color:var(--green);flex-shrink:0;}
   .task-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}
   .pips{display:flex;gap:3px;flex-wrap:wrap;}
   .pip{width:8px;height:8px;border-radius:2px;background:var(--border);}
@@ -163,13 +221,10 @@ const css = `
   .pip.partial-pip{background:var(--orange);}
   .meta-label{font-size:10px;color:var(--muted);}
   .partial-time{font-size:10px;color:var(--orange);font-weight:600;}
-
   .task-right{display:flex;align-items:center;gap:6px;flex-shrink:0;}
   .btn-start{background:var(--red);color:#fff;border:none;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .btn-start.open{background:var(--purple);}
   .btn-start:active{opacity:.8;}
-  .btn-edit{background:none;border:1px solid var(--border);border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:13px;flex-shrink:0;}
-  .btn-edit:active{background:var(--surface);}
   .active-badge{font-size:10px;color:var(--red);font-weight:700;letter-spacing:.04em;}
   .done-badge{font-size:17px;}
   .empty{text-align:center;color:var(--muted);font-size:13px;padding:48px 20px;line-height:1.9;}
@@ -193,10 +248,10 @@ const css = `
   .btn-add:active{transform:scale(.98);background:var(--red-dark);}
   .btn-add.open{background:var(--purple);}
 
-  /* SEQUENCE SHEET */
+  /* SHEETS */
   .sheet-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:160;display:flex;align-items:flex-end;transition:opacity .2s;}
   .sheet-backdrop.hidden{opacity:0;pointer-events:none;}
-  .sheet{background:var(--bg);border-radius:20px 20px 0 0;padding:20px 20px 32px;width:100%;transform:translateY(0);transition:transform .25s ease;max-height:80vh;overflow-y:auto;}
+  .sheet{background:var(--bg);border-radius:20px 20px 0 0;padding:20px 20px 32px;width:100%;max-height:85vh;overflow-y:auto;}
   .sheet-backdrop.hidden .sheet{transform:translateY(40px);}
   .sheet-title{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:var(--red);margin-bottom:3px;}
   .sheet-sub{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5;}
@@ -208,19 +263,28 @@ const css = `
   .btn-sheet-cancel{background:var(--surface);border:1px solid var(--border);color:var(--muted);border-radius:10px;padding:12px 14px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .btn-sheet-single{flex:1;background:#fff;border:1.5px solid var(--red);color:var(--red);border-radius:10px;padding:12px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .btn-sheet-all{flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
-
-  /* EDIT SHEET */
   .modal-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;}
   .modal-input{width:100%;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;outline:none;margin-bottom:12px;}
   .modal-input:focus{border-color:var(--red);}
-  .modal-row{display:flex;gap:8px;margin-bottom:14px;align-items:center;}
+  .modal-row{display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap;}
   .modal-label{font-size:12px;color:var(--muted);margin-right:4px;}
   .modal-actions{display:flex;gap:8px;}
   .btn-modal-save{flex:1;background:var(--red);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .btn-modal-delete{background:#fdf1f0;color:var(--red);border:1px solid #f5c4c0;border-radius:10px;padding:13px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .btn-modal-cancel{background:var(--surface);color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:13px 14px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;}
 
-  /* TIMER OVERLAY */
+  /* RECURRING SHEET */
+  .freq-options{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+  .freq-btn{background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:12px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;text-align:center;transition:all .15s;}
+  .freq-btn.active{background:var(--green);color:#fff;border-color:var(--green);}
+  .btn-make-recurring{width:100%;background:var(--green);color:#fff;border:none;border-radius:10px;padding:13px;font-size:14px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;margin-bottom:8px;}
+  .btn-skip-recurring{width:100%;background:var(--surface);color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:12px;font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;}
+  .custom-interval{display:flex;align-items:center;gap:8px;margin-bottom:14px;}
+  .custom-interval input{width:60px;background:#fff;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;color:var(--text);outline:none;text-align:center;}
+  .custom-interval input:focus{border-color:var(--green);}
+  .custom-interval span{font-size:13px;color:var(--muted);}
+
+  /* TIMER */
   .timer-overlay{position:fixed;inset:0;background:var(--bg);z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;transition:opacity .3s;}
   .timer-overlay.hidden{opacity:0;pointer-events:none;}
   .timer-task{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--red);text-align:center;margin-bottom:4px;}
@@ -257,42 +321,45 @@ const css = `
   .btn-alarm-done{background:var(--green);color:#fff;border:none;border-radius:14px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
   .btn-alarm-more{background:#fff;border:1px solid var(--border);color:var(--text);border-radius:14px;padding:13px;font-size:13px;cursor:pointer;text-align:center;font-family:'DM Sans',sans-serif;}
   .btn-alarm-interrupt{background:var(--orange-light);border:1.5px solid var(--orange);color:var(--orange);border-radius:14px;padding:13px;font-size:13px;font-weight:600;cursor:pointer;text-align:center;font-family:'DM Sans',sans-serif;}
-
-  /* LOADING */
   .loading{display:flex;align-items:center;justify-content:center;height:100dvh;font-size:14px;color:var(--muted);}
   .db-error{background:#fdf1f0;border:1px solid #f5c4c0;border-radius:10px;padding:14px 16px;margin:16px 20px;font-size:13px;color:var(--red);line-height:1.5;}
 `;
 
-// ── MAIN COMPONENT ────────────────────────────────────────────────
+// ── MAIN ──────────────────────────────────────────────────────────
 export default function TaskTimer() {
-  const [tasks, setTasks]           = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [dbError, setDbError]       = useState(null);
+  const [tasks, setTasks]       = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [dbError, setDbError]   = useState(null);
   const [syncStatus, setSyncStatus] = useState("");
   const [syncType, setSyncType]     = useState("");
 
-  // Mode & deadline
-  const [mode, setModeState]     = useState("deadline");
+  // mode / deadline
+  const [mode, setModeState]      = useState("deadline");
   const [deadlineH, setDeadlineH] = useState(15);
   const [deadlineM, setDeadlineM] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerVal, setPickerVal]   = useState("15:00");
 
-  // Add task
+  // add task
   const [taskInput, setTaskInput] = useState("");
   const [slotType, setSlotType]   = useState(5);
   const [newSlots, setNewSlots]   = useState(1);
 
-  // Sequence sheet
-  const [seqData, setSeqData]     = useState(null); // { seq, originalName }
+  // sequence
+  const [seqData, setSeqData] = useState(null);
 
-  // Edit sheet
-  const [editTask, setEditTask]   = useState(null);
-  const [editName, setEditName]   = useState("");
+  // edit sheet
+  const [editTask, setEditTask]       = useState(null);
+  const [editName, setEditName]       = useState("");
   const [editSlotType, setEditSlotType] = useState(5);
-  const [editSlots, setEditSlots] = useState(1);
+  const [editSlots, setEditSlots]     = useState(1);
 
-  // Timer
+  // recurring sheet — shown after completing a task
+  const [recurringPrompt, setRecurringPrompt] = useState(null); // task object
+  const [recurFreq, setRecurFreq]   = useState("weekly");
+  const [recurInterval, setRecurInterval] = useState(7);
+
+  // timer
   const [activeId, setActiveId]   = useState(null);
   const [secsLeft, setSecsLeft]   = useState(0);
   const [totalSecs, setTotalSecs] = useState(0);
@@ -300,29 +367,58 @@ export default function TaskTimer() {
   const alarmRef                  = useRef(null);
   const sessionStartRef           = useRef(null);
 
-  // Quick capture confirm
+  // quick capture
+  const [quickInput, setQuickInput] = useState("");
   const [captureMsg, setCaptureMsg] = useState("");
 
-  // Countdown display
+  // clock
   const [now, setNow] = useState(new Date());
   useInterval(() => setNow(new Date()), 1000);
   useInterval(() => { if (activeId && !alarmOn) setSecsLeft(s => Math.max(0, s - 1)); }, activeId && !alarmOn ? 1000 : null);
   useEffect(() => { if (secsLeft === 0 && activeId && !alarmOn) triggerAlarm(); }, [secsLeft]);
 
-  // ── DB LOAD ──────────────────────────────────────────────────
-  useEffect(() => {
-    loadTasks();
-  }, []);
+  // ── LOAD ──────────────────────────────────────────────────────
+  useEffect(() => { loadTasks(); expireRecurring(); }, []);
 
   async function loadTasks() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .order("created_at", { ascending: true });
+    const { data, error } = await supabase.from("tasks").select("*").order("created_at", { ascending: true });
     if (error) { setDbError(error.message); setLoading(false); return; }
     setTasks(data || []);
     setLoading(false);
+  }
+
+  // Expire recurring tasks that are past midnight and reschedule
+  async function expireRecurring() {
+    const today = todayStr();
+    const { data } = await supabase.from("tasks").select("*").eq("done", false).not("recurring_task_id", "is", null);
+    if (!data) return;
+    for (const task of data) {
+      const due = task.due_date;
+      if (due && due < today) {
+        // Delete expired instance
+        await supabase.from("tasks").delete().eq("id", task.id);
+        // Schedule next instance
+        const { data: rec } = await supabase.from("recurring_tasks").select("*").eq("id", task.recurring_task_id).single();
+        if (rec) {
+          const nextDue = nextDueDate(rec.frequency, rec.interval_days);
+          await supabase.from("recurring_tasks").update({ next_due: nextDue }).eq("id", rec.id);
+          // If next due is today, create the task immediately
+          if (nextDue === today) await spawnRecurringTask(rec, nextDue);
+        }
+      }
+    }
+  }
+
+  async function spawnRecurringTask(rec, dueDate) {
+    const taskData = {
+      name: rec.name, mode: "deadline",
+      estimated_slots: 1, slot_minutes: 15,
+      actual_slots: 0, done: false, partial: false,
+      recurring_task_id: rec.id, due_date: dueDate,
+    };
+    const { data } = await supabase.from("tasks").insert([taskData]).select().single();
+    if (data) setTasks(prev => [...prev, data]);
   }
 
   function showSync(msg, type, duration = 3000) {
@@ -330,7 +426,7 @@ export default function TaskTimer() {
     if (duration) setTimeout(() => { setSyncStatus(""); setSyncType(""); }, duration);
   }
 
-  // ── DB OPERATIONS ────────────────────────────────────────────
+  // ── DB ────────────────────────────────────────────────────────
   async function insertTask(taskData) {
     const { data, error } = await supabase.from("tasks").insert([taskData]).select().single();
     if (error) { showSync("Save failed", "err"); return null; }
@@ -355,73 +451,47 @@ export default function TaskTimer() {
 
   // ── DEADLINE ─────────────────────────────────────────────────
   function getDeadline() {
-    const d = new Date();
-    d.setHours(deadlineH, deadlineM, 0, 0);
-    return d;
+    const d = new Date(); d.setHours(deadlineH, deadlineM, 0, 0); return d;
   }
-
   function applyDeadline() {
     const [h, m] = pickerVal.split(":").map(Number);
-    setDeadlineH(h); setDeadlineM(m);
-    setShowPicker(false);
+    setDeadlineH(h); setDeadlineM(m); setShowPicker(false);
   }
 
-  const deadline   = getDeadline();
-  const diffMs     = Math.max(0, deadline - now);
-  const diffMins   = diffMs / 60000;
-  const slots15    = Math.floor(diffMins / 15);
-  const slots5     = Math.floor(diffMins / 5);
-  const h          = Math.floor(diffMs / 3600000);
-  const m          = Math.floor((diffMs % 3600000) / 60000);
-  const s          = Math.floor((diffMs % 60000) / 1000);
-  const countdownStr = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
-  const urgent     = diffMs < 15 * 60 * 1000 && diffMs > 0;
-
-  // Budget
-  const activeTasks  = tasks.filter(t => !t.done && t.mode !== "open");
-  const usedMins     = activeTasks.reduce((a, t) => a + t.estimated_slots * t.slot_minutes, 0);
-  const availMins    = Math.round(diffMins);
-  const budgetPct    = availMins > 0 ? Math.min((usedMins / availMins) * 100, 100) : (usedMins > 0 ? 100 : 0);
-  const budgetOver   = usedMins > availMins;
+  const deadline      = getDeadline();
+  const diffMs        = Math.max(0, deadline - now);
+  const diffMins      = diffMs / 60000;
+  const slots15       = Math.floor(diffMins / 15);
+  const slots5        = Math.floor(diffMins / 5);
+  const h             = Math.floor(diffMs / 3600000);
+  const m             = Math.floor((diffMs % 3600000) / 60000);
+  const s             = Math.floor((diffMs % 60000) / 1000);
+  const countdownStr  = h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+  const urgent        = diffMs < 15 * 60 * 1000 && diffMs > 0;
+  const activeTasks   = tasks.filter(t => !t.done && t.mode !== "open");
+  const usedMins      = activeTasks.reduce((a, t) => a + t.estimated_slots * t.slot_minutes, 0);
+  const availMins     = Math.round(diffMins);
+  const budgetPct     = availMins > 0 ? Math.min((usedMins / availMins) * 100, 100) : (usedMins > 0 ? 100 : 0);
+  const budgetOver    = usedMins > availMins;
 
   // ── ADD TASK ─────────────────────────────────────────────────
   async function addTask(nameOverride, slotsOverride, slotMinsOverride, seqKey) {
     const name = nameOverride || taskInput.trim();
     if (!name) return;
-
     if (!nameOverride) {
       const match = detectSequence(name);
       if (match) { setSeqData({ seq: match.seq, originalName: name }); setTaskInput(""); return; }
     }
-
     showSync("Saving…", "saving", 0);
-    const taskData = {
-      name,
-      mode,
-      estimated_slots: slotsOverride ?? newSlots,
-      slot_minutes: slotMinsOverride ?? slotType,
-      actual_slots: 0,
-      done: false,
-      partial: false,
-      remaining_mins: null,
-      sequence_key: seqKey || null,
-    };
-    const saved = await insertTask(taskData);
-    if (saved) {
-      setTasks(prev => [...prev, saved]);
-      showSync("✓ Saved", "ok");
-    }
+    const saved = await insertTask({ name, mode, estimated_slots: slotsOverride ?? newSlots, slot_minutes: slotMinsOverride ?? slotType, actual_slots: 0, done: false, partial: false, sequence_key: seqKey || null });
+    if (saved) { setTasks(prev => [...prev, saved]); showSync("✓ Saved", "ok"); }
     if (!nameOverride) { setTaskInput(""); setNewSlots(1); }
   }
 
   async function confirmSeqAll() {
     if (!seqData) return;
     showSync("Saving…", "saving", 0);
-    const inserts = seqData.seq.steps.map(s => ({
-      name: s.name, mode, estimated_slots: s.slots,
-      slot_minutes: s.slotMinutes, actual_slots: 0,
-      done: false, partial: false, remaining_mins: null, sequence_key: "seq",
-    }));
+    const inserts = seqData.seq.steps.map(s => ({ name: s.name, mode, estimated_slots: s.slots, slot_minutes: s.slotMinutes, actual_slots: 0, done: false, partial: false, sequence_key: "seq" }));
     const { data, error } = await supabase.from("tasks").insert(inserts).select();
     if (!error && data) { setTasks(prev => [...prev, ...data]); showSync("✓ Saved", "ok"); }
     else showSync("Save failed", "err");
@@ -435,12 +505,19 @@ export default function TaskTimer() {
     setSeqData(null);
   }
 
+  // ── SWIPE ACTIONS ─────────────────────────────────────────────
+  async function swipeDelete(task) {
+    if (activeId === task.id) stopTimer();
+    const ok = await deleteTaskDb(task.id);
+    if (ok) setTasks(prev => prev.filter(t => t.id !== task.id));
+  }
+
+  function swipeEdit(task) { openEdit(task); }
+
   // ── EDIT ─────────────────────────────────────────────────────
   function openEdit(task) {
-    setEditTask(task);
-    setEditName(task.name);
-    setEditSlotType(task.slot_minutes);
-    setEditSlots(task.estimated_slots);
+    setEditTask(task); setEditName(task.name);
+    setEditSlotType(task.slot_minutes); setEditSlots(task.estimated_slots);
   }
 
   async function saveEdit() {
@@ -458,42 +535,31 @@ export default function TaskTimer() {
     setEditTask(null);
   }
 
-  // ── QUICK CAPTURE ────────────────────────────────────────────
-  const [quickInput, setQuickInput] = useState("");
+  // ── QUICK CAPTURE ─────────────────────────────────────────────
   async function quickCapture() {
-    const name = quickInput.trim();
-    if (!name) return;
-    const taskData = { name, mode, estimated_slots: 1, slot_minutes: 15, actual_slots: 0, done: false, partial: false, remaining_mins: null, sequence_key: null };
-    const saved = await insertTask(taskData);
+    const name = quickInput.trim(); if (!name) return;
+    const saved = await insertTask({ name, mode, estimated_slots: 1, slot_minutes: 15, actual_slots: 0, done: false, partial: false });
     if (saved) { setTasks(prev => [...prev, saved]); setCaptureMsg(`✓ "${name.slice(0,28)}" added`); setTimeout(() => setCaptureMsg(""), 2500); }
     setQuickInput("");
   }
 
-  // ── TIMER ────────────────────────────────────────────────────
+  // ── TIMER ─────────────────────────────────────────────────────
   async function startTask(task) {
     if (activeId) return;
-    const slotSecs = (task.remaining_mins || task.slot_minutes) * 60;
+    const slotSecs  = (task.remaining_mins || task.slot_minutes) * 60;
     const newActual = (task.actual_slots || 0) + 1;
-    setActiveId(task.id);
-    setSecsLeft(slotSecs);
-    setTotalSecs(slotSecs);
+    setActiveId(task.id); setSecsLeft(slotSecs); setTotalSecs(slotSecs);
     sessionStartRef.current = new Date().toISOString();
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, actual_slots: newActual, partial: false, remaining_mins: null } : t));
     await updateTask(task.id, { actual_slots: newActual, partial: false, remaining_mins: null });
   }
 
-  function stopTimer() {
-    setActiveId(null);
-    setSecsLeft(0);
-    setAlarmOn(false);
-    if (alarmRef.current) { clearInterval(alarmRef.current); alarmRef.current = null; }
-  }
+  function stopTimer() { setActiveId(null); setSecsLeft(0); setAlarmOn(false); if (alarmRef.current) { clearInterval(alarmRef.current); alarmRef.current = null; } }
 
   function triggerAlarm() {
     setAlarmOn(true);
     if (navigator.vibrate) navigator.vibrate([400,200,400,200,400,200,800]);
-    playBeep();
-    alarmRef.current = setInterval(playBeep, 2500);
+    playBeep(); alarmRef.current = setInterval(playBeep, 2500);
   }
 
   function playBeep() {
@@ -508,22 +574,16 @@ export default function TaskTimer() {
         gain.gain.exponentialRampToValueAtTime(.001, t + .14);
         osc.start(t); osc.stop(t + .15);
       });
-    } catch(e) {}
+    } catch { /* AudioContext not available */ }
   }
 
-  function stopAlarm() {
-    setAlarmOn(false);
-    if (alarmRef.current) { clearInterval(alarmRef.current); alarmRef.current = null; }
-    if (navigator.vibrate) navigator.vibrate(0);
-  }
+  function stopAlarm() { setAlarmOn(false); if (alarmRef.current) { clearInterval(alarmRef.current); alarmRef.current = null; } if (navigator.vibrate) navigator.vibrate(0); }
 
   async function addMoreTime() {
     stopAlarm();
-    const task = tasks.find(t => t.id === activeId);
-    if (!task) return;
+    const task = tasks.find(t => t.id === activeId); if (!task) return;
     const newActual = task.actual_slots + 1;
-    const slotSecs  = task.slot_minutes * 60;
-    setSecsLeft(slotSecs); setTotalSecs(slotSecs);
+    setSecsLeft(task.slot_minutes * 60); setTotalSecs(task.slot_minutes * 60);
     setTasks(prev => prev.map(t => t.id === activeId ? { ...t, actual_slots: newActual } : t));
     await updateTask(activeId, { actual_slots: newActual });
     await insertSession(activeId, sessionStartRef.current, new Date().toISOString(), "extended");
@@ -532,36 +592,55 @@ export default function TaskTimer() {
 
   async function completeTask() {
     stopAlarm();
-    const task = tasks.find(t => t.id === activeId);
-    if (!task) return;
-    const now = new Date().toISOString();
+    const task = tasks.find(t => t.id === activeId); if (!task) return;
+    const nowStr = new Date().toISOString();
     setTasks(prev => prev.map(t => t.id === activeId ? { ...t, done: true, partial: false } : t));
-    await updateTask(activeId, { done: true, partial: false, completed_at: now });
-    await insertSession(activeId, sessionStartRef.current, now, "completed");
+    await updateTask(activeId, { done: true, partial: false, completed_at: nowStr });
+    await insertSession(activeId, sessionStartRef.current, nowStr, "completed");
     stopTimer();
+    // Only prompt for recurring if it's not already a recurring task
+    if (!task.recurring_task_id) setRecurringPrompt(task);
   }
 
   async function markInterrupted() {
     stopAlarm();
-    const task = tasks.find(t => t.id === activeId);
-    if (!task) return;
+    const task = tasks.find(t => t.id === activeId); if (!task) return;
     const remaining = Math.max(1, Math.ceil(secsLeft / 60));
-    const now = new Date().toISOString();
-    const updated = { ...task, partial: true, remaining_mins: remaining, done: false };
+    const nowStr    = new Date().toISOString();
+    const updated   = { ...task, partial: true, remaining_mins: remaining, done: false };
     setTasks(prev => [...prev.filter(t => t.id !== activeId), updated]);
     await updateTask(activeId, { partial: true, remaining_mins: remaining });
-    await insertSession(activeId, sessionStartRef.current, now, "interrupted");
+    await insertSession(activeId, sessionStartRef.current, nowStr, "interrupted");
     stopTimer();
   }
 
-  // ── RENDER HELPERS ───────────────────────────────────────────
+  // ── RECURRING ────────────────────────────────────────────────
+  async function makeRecurring() {
+    if (!recurringPrompt) return;
+    const intervalDays = recurFreq === "custom" ? recurInterval : null;
+    const nextDue      = nextDueDate(recurFreq, intervalDays);
+    // Insert recurring pattern
+    const { data: rec, error } = await supabase.from("recurring_tasks").insert([{
+      name: recurringPrompt.name,
+      frequency: recurFreq,
+      interval_days: intervalDays,
+      next_due: nextDue,
+    }]).select().single();
+    if (error) { showSync("Failed to save recurring task", "err"); return; }
+    showSync("✓ Added to recurring tasks", "ok");
+    setRecurringPrompt(null);
+    // If next due is today, spawn it now
+    if (nextDue === todayStr()) await spawnRecurringTask(rec, nextDue);
+  }
+
+  // ── RENDER ───────────────────────────────────────────────────
   function buildPips(task) {
     const total = Math.max(task.estimated_slots, task.actual_slots || 0);
     return Array.from({ length: total }, (_, i) => {
       let cls = "pip" + (task.slot_minutes === 5 ? " mini" : "");
-      if (task.done)                                 cls += " done-pip";
-      else if (task.partial && i < task.actual_slots) cls += " partial-pip";
-      else if (i >= task.estimated_slots)            cls += " extra";
+      if (task.done)                                    cls += " done-pip";
+      else if (task.partial && i < task.actual_slots)  cls += " partial-pip";
+      else if (i >= task.estimated_slots)              cls += " extra";
       else cls += task.mode === "open" ? " open-pip" : " filled";
       return <div key={i} className={cls} />;
     });
@@ -569,16 +648,22 @@ export default function TaskTimer() {
 
   function buildCard(task) {
     const isActive = task.id === activeId;
-    const cls = ["task-card", isActive ? "is-active" : task.done ? "is-done" : task.partial ? "is-partial" : task.mode === "open" ? "is-open" : ""].filter(Boolean).join(" ");
+    const isRecurring = !!task.recurring_task_id;
+    const cls = ["task-card",
+      isActive ? "is-active" : task.done ? "is-done" : task.partial ? "is-partial" : task.mode === "open" ? "is-open" : "",
+      isRecurring ? "is-recurring" : "",
+    ].filter(Boolean).join(" ");
+
     const estMins = task.estimated_slots * task.slot_minutes;
     const actMins = (task.actual_slots || 0) * task.slot_minutes;
     const label   = task.done ? `${estMins}min est · ${actMins}min real` : `${task.estimated_slots} × ${task.slot_minutes}min`;
 
-    return (
-      <div key={task.id} className={cls}>
+    const card = (
+      <div className={cls}>
         <div className="task-info">
           <div className="task-name-row">
-            {task.partial && <span className="partial-icon">🔄</span>}
+            {task.partial    && <span className="partial-icon">🔄</span>}
+            {isRecurring     && <span className="recurring-icon">↻</span>}
             <div className="task-name">{task.name}</div>
           </div>
           <div className="task-meta">
@@ -588,33 +673,28 @@ export default function TaskTimer() {
           </div>
         </div>
         <div className="task-right">
-          {task.done ? (
-            <span className="done-badge">✓</span>
-          ) : isActive ? (
-            <span className="active-badge">ACTIVE</span>
-          ) : (
-            <>
-              <button className="btn-edit" onClick={() => openEdit(task)}>✏️</button>
-              <button className={`btn-start${task.mode === "open" ? " open" : ""}`} onClick={() => startTask(task)}>
-                {task.partial ? "RESUME" : "START"}
-              </button>
-            </>
-          )}
+          {task.done ? <span className="done-badge">✓</span>
+          : isActive ? <span className="active-badge">ACTIVE</span>
+          : <button className={`btn-start${task.mode==="open"?" open":""}`} onClick={() => startTask(task)}>{task.partial ? "RESUME" : "START"}</button>}
         </div>
       </div>
     );
+
+    if (task.done || isActive) return <div key={task.id}>{card}</div>;
+
+    return (
+      <SwipeCard key={task.id} onSwipeLeft={() => swipeDelete(task)} onSwipeRight={() => swipeEdit(task)}>
+        {card}
+      </SwipeCard>
+    );
   }
 
-  // Split tasks into sections
-  const visible  = tasks.filter(t => mode === "open" ? t.mode === "open" : t.mode !== "open");
-  const todo     = visible.filter(t => !t.done && !t.partial);
-  const partial  = visible.filter(t => t.partial && !t.done);
-  const done     = visible.filter(t => t.done);
-
-  // Ring
-  const ringPct    = totalSecs > 0 ? secsLeft / totalSecs : 0;
-  const ringOffset = 276.46 * (1 - ringPct);
+  const visible = tasks.filter(t => mode === "open" ? t.mode === "open" : t.mode !== "open");
+  const todo    = visible.filter(t => !t.done && !t.partial);
+  const partial = visible.filter(t => t.partial && !t.done);
+  const done    = visible.filter(t => t.done);
   const activeTask = tasks.find(t => t.id === activeId);
+  const ringOffset = totalSecs > 0 ? 276.46 * (1 - secsLeft / totalSecs) : 0;
 
   if (loading) return <><style>{css}</style><div className="loading">Loading your tasks…</div></>;
 
@@ -623,68 +703,68 @@ export default function TaskTimer() {
       <style>{css}</style>
       <div className="app">
 
-        {/* ── HEADER ── */}
+        {/* HEADER */}
         <div className="header">
           <div className="header-top">
             <div style={{flex:1,minWidth:0}}>
               <div className="mode-tabs">
-                <button className={`mode-tab${mode==="deadline"?" deadline":""}`} onClick={() => setModeState("deadline")}>⏰ Deadline</button>
-                <button className={`mode-tab${mode==="open"?" open":""}`}         onClick={() => setModeState("open")}>∞ Open</button>
+                <button className={`mode-tab${mode==="deadline"?" deadline":""}`} onClick={()=>setModeState("deadline")}>⏰ Deadline</button>
+                <button className={`mode-tab${mode==="open"?" open":""}`}         onClick={()=>setModeState("open")}>∞ Open</button>
               </div>
-              {mode === "deadline" ? (
+              {mode==="deadline" ? (
                 <>
                   <div className="deadline-row">
                     <div className={`countdown${urgent?" urgent":""}`}>{countdownStr}</div>
-                    <button className="btn-change" onClick={() => setShowPicker(p => !p)}>change</button>
+                    <button className="btn-change" onClick={()=>setShowPicker(p=>!p)}>change</button>
                   </div>
                   {showPicker && (
                     <div className="deadline-picker">
-                      <input type="time" value={pickerVal} onChange={e => setPickerVal(e.target.value)} />
+                      <input type="time" value={pickerVal} onChange={e=>setPickerVal(e.target.value)} />
                       <button className="btn-set" onClick={applyDeadline}>Set</button>
                     </div>
                   )}
                   <div className="slots-avail"><strong>{slots15}</strong> × 15min &nbsp;·&nbsp; <strong>{slots5}</strong> × 5min slots left</div>
                 </>
               ) : (
-                <div className="countdown open">{tasks.filter(t=>!t.done&&t.mode==="open").length} open tasks</div>
+                <div className={`countdown open-mode`}>{tasks.filter(t=>!t.done&&t.mode==="open").length} open tasks</div>
               )}
             </div>
             <div>
-              <div className="drive-btns">
-                <button className="btn-drive" onClick={() => showSync("Auto-saved ✓", "ok")}>✓ Auto-saved</button>
-              </div>
-              <div className={`sync-status${syncType?" "+syncType:""}`}>{syncStatus}</div>
+              <div className={`sync-status${syncType?" "+syncType:""}`}>{syncStatus || "● Live"}</div>
             </div>
           </div>
           <div className="budget-row">
             <div className="budget-bar">
-              <div className={`budget-fill${budgetOver?" over":""}${mode==="open"?" open-fill":""}`} style={{width:mode==="open"?"30%":budgetPct+"%"}} />
+              <div className={`budget-fill${budgetOver?" over":""}${mode==="open"?" open-fill":""}`} style={{width:mode==="open"?"30%":budgetPct+"%"}}/>
             </div>
             <div className="budget-text">
-              {mode==="open" ? <><strong>{tasks.filter(t=>!t.done&&t.mode==="open").reduce((a,t)=>a+t.estimated_slots*t.slot_minutes,0)}min</strong> of open tasks</> : <><strong>{usedMins}min</strong> assigned · <strong>{availMins}min</strong> left</>}
+              {mode==="open"
+                ? <><strong>{tasks.filter(t=>!t.done&&t.mode==="open").reduce((a,t)=>a+t.estimated_slots*t.slot_minutes,0)}min</strong> of open tasks</>
+                : <><strong>{usedMins}min</strong> assigned · <strong>{availMins}min</strong> left</>}
             </div>
           </div>
-          {dbError && <div className="db-error">⚠️ Database error: {dbError}</div>}
+          {visible.length > 0 && <div className="swipe-hint">← swipe to delete &nbsp;·&nbsp; swipe to edit →</div>}
+          {dbError && <div className="db-error">⚠️ {dbError}</div>}
         </div>
 
-        {/* ── TASK LIST ── */}
+        {/* TASK LIST */}
         <div className="task-list">
           {visible.length === 0 && <div className="empty">No tasks yet.<br/>Add your first one below ↓</div>}
           {todo.map(buildCard)}
           {partial.length > 0 && <><div className="section-label">⚠️ Unfinished</div>{partial.map(buildCard)}</>}
-          {done.length   > 0 && <><div className="section-label">✓ Done</div>{done.map(buildCard)}</>}
+          {done.length    > 0 && <><div className="section-label">✓ Done</div>{done.map(buildCard)}</>}
         </div>
 
-        {/* ── ADD TASK ── */}
+        {/* ADD TASK */}
         <div className="add-section">
           <div className="add-row">
             <input className="input-task" value={taskInput} onChange={e=>setTaskInput(e.target.value)}
-              onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder="What needs doing?" autoComplete="off" />
+              onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder="What needs doing?" autoComplete="off"/>
           </div>
           <div className="add-row">
             <div className="slot-controls">
               <div className="slot-toggle">
-                <button className={`slot-toggle-btn${slotType===5?" active":""}`} onClick={()=>setSlotType(5)}>5m</button>
+                <button className={`slot-toggle-btn${slotType===5?" active":""}`}  onClick={()=>setSlotType(5)}>5m</button>
                 <button className={`slot-toggle-btn${slotType===15?" active":""}`} onClick={()=>setSlotType(15)}>15m</button>
               </div>
               <div className="slot-stepper">
@@ -698,7 +778,7 @@ export default function TaskTimer() {
           <button className={`btn-add${mode==="open"?" open":""}`} onClick={()=>addTask()}>+ Add Task</button>
         </div>
 
-        {/* ── SEQUENCE SHEET ── */}
+        {/* SEQUENCE SHEET */}
         <div className={`sheet-backdrop${seqData?"":" hidden"}`}>
           <div className="sheet">
             <div className="sheet-title">{seqData?.seq.label} — full sequence</div>
@@ -717,15 +797,15 @@ export default function TaskTimer() {
           </div>
         </div>
 
-        {/* ── EDIT SHEET ── */}
+        {/* EDIT SHEET */}
         <div className={`sheet-backdrop${editTask?"":" hidden"}`} onClick={e=>e.target===e.currentTarget&&setEditTask(null)}>
           <div className="sheet">
             <div className="modal-title">Edit Task</div>
-            <input className="modal-input" value={editName} onChange={e=>setEditName(e.target.value)} placeholder="Task name" />
+            <input className="modal-input" value={editName} onChange={e=>setEditName(e.target.value)} placeholder="Task name"/>
             <div className="modal-row">
               <span className="modal-label">Slots:</span>
               <div className="slot-toggle">
-                <button className={`slot-toggle-btn${editSlotType===5?" active":""}`} onClick={()=>setEditSlotType(5)}>5m</button>
+                <button className={`slot-toggle-btn${editSlotType===5?" active":""}`}  onClick={()=>setEditSlotType(5)}>5m</button>
                 <button className={`slot-toggle-btn${editSlotType===15?" active":""}`} onClick={()=>setEditSlotType(15)}>15m</button>
               </div>
               <div className="slot-stepper" style={{marginLeft:4}}>
@@ -743,7 +823,31 @@ export default function TaskTimer() {
           </div>
         </div>
 
-        {/* ── TIMER OVERLAY ── */}
+        {/* RECURRING PROMPT — shown after completing a task */}
+        <div className={`sheet-backdrop${recurringPrompt?"":" hidden"}`} onClick={e=>e.target===e.currentTarget&&setRecurringPrompt(null)}>
+          <div className="sheet">
+            <div className="sheet-title">Make this recurring?</div>
+            <div className="sheet-sub">"{recurringPrompt?.name}" — if this comes up regularly, set a pattern and it'll appear automatically.</div>
+            <div className="freq-options">
+              {["daily","weekly","monthly","custom"].map(f => (
+                <button key={f} className={`freq-btn${recurFreq===f?" active":""}`} onClick={()=>setRecurFreq(f)}>
+                  {f === "daily" ? "Every day" : f === "weekly" ? "Every week" : f === "monthly" ? "Every month" : "Custom"}
+                </button>
+              ))}
+            </div>
+            {recurFreq === "custom" && (
+              <div className="custom-interval">
+                <span>Every</span>
+                <input type="number" min="1" max="365" value={recurInterval} onChange={e=>setRecurInterval(Number(e.target.value))}/>
+                <span>days</span>
+              </div>
+            )}
+            <button className="btn-make-recurring" onClick={makeRecurring}>↻ Yes, make it recurring</button>
+            <button className="btn-skip-recurring" onClick={()=>setRecurringPrompt(null)}>No thanks, one-off task</button>
+          </div>
+        </div>
+
+        {/* TIMER */}
         <div className={`timer-overlay${activeId?"":" hidden"}`}>
           <div className={`timer-task${activeTask?.mode==="open"?" open":""}`}>{activeTask?.name}</div>
           <div className="timer-info">slot {activeTask?.actual_slots} · {activeTask?.slot_minutes}min</div>
@@ -764,14 +868,14 @@ export default function TaskTimer() {
             <div className="quick-label">💡 Jot a task — stay focused</div>
             <div className="quick-row">
               <input className="input-quick" value={quickInput} onChange={e=>setQuickInput(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&quickCapture()} placeholder="e.g. take laundry out of wash…" />
+                onKeyDown={e=>e.key==="Enter"&&quickCapture()} placeholder="e.g. take laundry out of wash…"/>
               <button className="btn-capture" onClick={quickCapture}>Add</button>
             </div>
             {captureMsg && <div className="capture-confirm">{captureMsg}</div>}
           </div>
         </div>
 
-        {/* ── ALARM OVERLAY ── */}
+        {/* ALARM */}
         <div className={`alarm-overlay${alarmOn?" visible":" hidden"}`}>
           <div className="alarm-title">⏰ Slot done!</div>
           <div className="alarm-sub">"{activeTask?.name}" — what's the situation?</div>

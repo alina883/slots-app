@@ -396,6 +396,7 @@ export default function TaskTimer() {
   // Day tab — default to today, or Monday if today is outside this week
   const defaultTab = weekDays.includes(today) ? today : "pool";
   const [activeDay, setActiveDay] = useState(defaultTab);
+  const [bucketFilter, setBucketFilter] = useState("ALL"); // ALL | HOME | SELF | WORK | ADMIN
 
   // Deadline
   const [deadlineH, setDeadlineH] = useState(22);
@@ -444,6 +445,10 @@ export default function TaskTimer() {
   const alarmRef                  = useRef(null);
   const sessionStartRef           = useRef(null);
 
+  // Daily review / evening recap
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [recapOpen, setRecapOpen]   = useState(false);
+
   // Quick capture
   const [quickInput, setQuickInput] = useState("");
   const [captureMsg, setCaptureMsg] = useState("");
@@ -482,7 +487,7 @@ export default function TaskTimer() {
   }
 
   async function spawnRecurringTask(rec, dueDate) {
-    const taskData = { name: rec.name, mode: "deadline", bucket: "HOME", estimated_slots: 1, slot_minutes: 15, actual_slots: 0, done: false, partial: false, recurring_task_id: rec.id, due_date: dueDate, scheduled_date: dueDate };
+    const taskData = { name: rec.name, mode: "deadline", bucket: rec.bucket || "HOME", estimated_slots: 1, slot_minutes: 15, actual_slots: 0, done: false, partial: false, recurring_task_id: rec.id, due_date: dueDate, scheduled_date: dueDate };
     const { data } = await supabase.from("tasks").insert([taskData]).select().single();
     if (data) setTasks(prev => [...prev, data]);
   }
@@ -693,7 +698,7 @@ export default function TaskTimer() {
     const intervalDays = recurFreq === "custom" ? recurInterval : null;
     const nextDue      = nextDueDate(recurFreq, intervalDays);
     const { data: rec, error } = await supabase.from("recurring_tasks").insert([{
-      name: recurringPrompt.name, frequency: recurFreq, interval_days: intervalDays, next_due: nextDue,
+      name: recurringPrompt.name, frequency: recurFreq, interval_days: intervalDays, next_due: nextDue, bucket: recurringPrompt.bucket || "HOME",
     }]).select().single();
     if (error) { showSync("Failed", "err"); return; }
     showSync("✓ Added to recurring", "ok");
@@ -706,9 +711,9 @@ export default function TaskTimer() {
   const EVENT_DEFAULTS = {
     gym:        [
       { name: "Pack gym bag",    slotMinutes: 5,  slots: 1, whenOffset: -1 },
-      { name: "Drive to gym",    slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Drive to gym",    slotMinutes: 15, slots: 4, whenOffset: 0  },
       { name: "Shower & change", slotMinutes: 15, slots: 1, whenOffset: 0  },
-      { name: "Drive home",      slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Drive home",      slotMinutes: 15, slots: 4, whenOffset: 0  },
     ],
     seminar:    [
       { name: "Prepare notes",      slotMinutes: 15, slots: 1, whenOffset: -1 },
@@ -725,21 +730,21 @@ export default function TaskTimer() {
     ],
     meetup:     [
       { name: "Prepare talking points", slotMinutes: 15, slots: 1, whenOffset: -1 },
-      { name: "Travel there",           slotMinutes: 15, slots: 1, whenOffset: 0  },
-      { name: "Travel home",            slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Travel there",           slotMinutes: 15, slots: 4, whenOffset: 0  },
+      { name: "Travel home",            slotMinutes: 15, slots: 4, whenOffset: 0  },
     ],
     founders:   [
       { name: "Prepare talking points", slotMinutes: 15, slots: 1, whenOffset: -1 },
-      { name: "Travel there",           slotMinutes: 15, slots: 1, whenOffset: 0  },
-      { name: "Travel home",            slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Travel there",           slotMinutes: 15, slots: 4, whenOffset: 0  },
+      { name: "Travel home",            slotMinutes: 15, slots: 4, whenOffset: 0  },
     ],
     dentist:    [
-      { name: "Drive to dentist", slotMinutes: 15, slots: 1, whenOffset: 0 },
-      { name: "Drive home",       slotMinutes: 15, slots: 1, whenOffset: 0 },
+      { name: "Drive to dentist", slotMinutes: 15, slots: 4, whenOffset: 0 },
+      { name: "Drive home",       slotMinutes: 15, slots: 4, whenOffset: 0 },
     ],
     doctor:     [
-      { name: "Drive to doctor",  slotMinutes: 15, slots: 1, whenOffset: 0 },
-      { name: "Drive home",       slotMinutes: 15, slots: 1, whenOffset: 0 },
+      { name: "Drive to doctor",  slotMinutes: 15, slots: 4, whenOffset: 0 },
+      { name: "Drive home",       slotMinutes: 15, slots: 4, whenOffset: 0 },
     ],
   };
 
@@ -940,9 +945,10 @@ export default function TaskTimer() {
   }
 
   // Filter tasks for the active tab
-  const tabTasks = activeDay === "pool"
+  const rawTabTasks = activeDay === "pool"
     ? tasks.filter(t => !t.scheduled_date || !weekDays.includes(t.scheduled_date))
     : tasks.filter(t => t.scheduled_date === activeDay);
+  const tabTasks = bucketFilter === "ALL" ? rawTabTasks : rawTabTasks.filter(t => t.bucket === bucketFilter);
 
   const todo    = tabTasks.filter(t => !t.done && !t.partial);
   const partial = tabTasks.filter(t => t.partial && !t.done);
@@ -1029,6 +1035,32 @@ export default function TaskTimer() {
             })}
 
           </div>
+        </div>
+
+        {/* BUCKET FILTER + DAILY REVIEW */}
+        <div style={{padding:"8px 16px 0",display:"flex",alignItems:"center",gap:6,justifyContent:"space-between"}}>
+          <div style={{display:"flex",gap:4,flex:1,overflowX:"auto"}}>
+            {["ALL","HOME","SELF","WORK","ADMIN"].map(b => (
+              <button
+                key={b}
+                onClick={() => setBucketFilter(b)}
+                style={{
+                  flexShrink:0, padding:"4px 10px", borderRadius:6, fontSize:11, fontWeight:700,
+                  cursor:"pointer", border:"1.5px solid",
+                  background: bucketFilter===b ? (b==="ALL"?"var(--text)":b==="HOME"?"var(--green)":b==="SELF"?"var(--purple)":b==="WORK"?"var(--orange)":"var(--red)") : "#fff",
+                  borderColor: b==="ALL"?"var(--border)":b==="HOME"?"var(--green)":b==="SELF"?"var(--purple)":b==="WORK"?"var(--orange)":"var(--red)",
+                  color: bucketFilter===b ? "#fff" : (b==="ALL"?"var(--muted)":b==="HOME"?"var(--green)":b==="SELF"?"var(--purple)":b==="WORK"?"var(--orange)":"var(--red)"),
+                  fontFamily:"'Inter',sans-serif",
+                }}
+              >{b}</button>
+            ))}
+          </div>
+          {activeDay === today && (
+            <div style={{display:"flex",gap:4,flexShrink:0}}>
+              <button onClick={() => setReviewOpen(true)} style={{fontSize:11,fontWeight:700,padding:"4px 9px",borderRadius:6,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",fontFamily:"'Inter',sans-serif",color:"var(--text)"}}>🌅 Review</button>
+              <button onClick={() => setRecapOpen(true)}  style={{fontSize:11,fontWeight:700,padding:"4px 9px",borderRadius:6,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",fontFamily:"'Inter',sans-serif",color:"var(--text)"}}>🌙 Recap</button>
+            </div>
+          )}
         </div>
 
         {/* TASK LIST */}
@@ -1278,6 +1310,101 @@ export default function TaskTimer() {
 
             <div className="sheet-actions" style={{marginTop:12}}>
               <button className="btn-sheet-cancel" onClick={() => setCalendarOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+
+        {/* DAILY REVIEW SHEET */}
+        <div className={`sheet-backdrop${reviewOpen?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setReviewOpen(false)}>
+          <div className="sheet">
+            <div className="sheet-title">🌅 Daily review</div>
+            <div className="sheet-sub">{`Today is ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}. Here's what you have.`}</div>
+
+            {/* Slot summary */}
+            <div style={{background:"var(--surface)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+              <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>⏱ Time available today</div>
+              <div style={{fontSize:22,fontWeight:700,color:"var(--red)"}}>{slots15} × 15min slots</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{slots5} × 5min slots · {availMins}min total</div>
+              {budgetOver && <div style={{fontSize:11,color:"var(--orange)",marginTop:4,fontWeight:600}}>⚠️ You've assigned more time than you have — consider moving some tasks to Pool</div>}
+            </div>
+
+            {/* Today's tasks */}
+            <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:8}}>Scheduled today</div>
+            {tasks.filter(t => t.scheduled_date === today && !t.done).length === 0 && (
+              <div style={{fontSize:13,color:"var(--muted)",marginBottom:12}}>Nothing scheduled yet — add tasks below or drag from the Pool.</div>
+            )}
+            {tasks.filter(t => t.scheduled_date === today && !t.done).map(task => (
+              <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid var(--border)"}}>
+                <div style={{width:10,height:10,borderRadius:2,background:task.bucket==="HOME"?"var(--green)":task.bucket==="SELF"?"var(--purple)":task.bucket==="WORK"?"var(--orange)":"var(--red)",flexShrink:0}}/>
+                <span style={{flex:1,fontSize:13,fontWeight:500}}>{task.name}</span>
+                <span style={{fontSize:11,color:"var(--muted)"}}>{task.estimated_slots * task.slot_minutes}min</span>
+                <button
+                  onClick={async () => { await updateTask(task.id,{scheduled_date:null}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:null}:t)); }}
+                  style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--muted)",fontFamily:"'Inter',sans-serif"}}
+                >→ Pool</button>
+              </div>
+            ))}
+
+            <div style={{marginTop:14,display:"flex",gap:8}}>
+              <button className="btn-sheet-all" style={{flex:1}} onClick={() => { setShowPicker(true); setReviewOpen(false); }}>Set today's deadline</button>
+              <button className="btn-sheet-cancel" onClick={() => setReviewOpen(false)}>Done</button>
+            </div>
+          </div>
+        </div>
+
+        {/* EVENING RECAP SHEET */}
+        <div className={`sheet-backdrop${recapOpen?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setRecapOpen(false)}>
+          <div className="sheet">
+            <div className="sheet-title">🌙 Evening recap</div>
+            <div className="sheet-sub">Here's how today went.</div>
+
+            {(() => {
+              const todayDone    = tasks.filter(t => t.scheduled_date === today && t.done);
+              const todayLeft    = tasks.filter(t => t.scheduled_date === today && !t.done && !t.partial);
+              const todayPartial = tasks.filter(t => t.scheduled_date === today && t.partial);
+              const doneMins     = todayDone.reduce((a,t) => a + t.estimated_slots * t.slot_minutes, 0);
+              return (
+                <>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+                    <div style={{background:"var(--green-light)",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+                      <div style={{fontSize:22,fontWeight:700,color:"var(--green)"}}>{todayDone.length}</div>
+                      <div style={{fontSize:10,color:"var(--green)",fontWeight:600}}>DONE</div>
+                    </div>
+                    <div style={{background:"var(--orange-light)",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+                      <div style={{fontSize:22,fontWeight:700,color:"var(--orange)"}}>{todayPartial.length}</div>
+                      <div style={{fontSize:10,color:"var(--orange)",fontWeight:600}}>PARTIAL</div>
+                    </div>
+                    <div style={{background:"var(--surface)",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
+                      <div style={{fontSize:22,fontWeight:700,color:"var(--muted)"}}>{todayLeft.length}</div>
+                      <div style={{fontSize:10,color:"var(--muted)",fontWeight:600}}>LEFT</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>You completed <strong style={{color:"var(--text)"}}>{doneMins}min</strong> of work today.</div>
+
+                  {todayLeft.length > 0 && (
+                    <>
+                      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:8}}>Still to do — move to Pool or tomorrow?</div>
+                      {todayLeft.map(task => (
+                        <div key={task.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
+                          <span style={{flex:1,fontSize:13}}>{task.name}</span>
+                          <button
+                            onClick={async () => { const tmr = addDays(today,1); await updateTask(task.id,{scheduled_date:tmr}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:tmr}:t)); }}
+                            style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--text)",fontFamily:"'Inter',sans-serif",fontWeight:600}}
+                          >Tomorrow</button>
+                          <button
+                            onClick={async () => { await updateTask(task.id,{scheduled_date:null}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:null}:t)); }}
+                            style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--muted)",fontFamily:"'Inter',sans-serif"}}
+                          >Pool</button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
+              );
+            })()}
+
+            <div style={{marginTop:16}}>
+              <button className="btn-sheet-cancel" style={{width:"100%"}} onClick={() => setRecapOpen(false)}>Close</button>
             </div>
           </div>
         </div>

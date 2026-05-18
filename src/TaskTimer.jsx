@@ -723,7 +723,6 @@ export default function TaskTimer() {
     calendarEvents.forEach(event => {
       if (!event.sequence) return;
       const checks = selectedEventTasks[event.id] || [];
-      // Determine which day this event belongs to
       const eventDate = event.start?.slice(0, 10);
       const schDate   = weekDays.includes(eventDate) ? eventDate : null;
       event.sequence.tasks.forEach((task, idx) => {
@@ -739,8 +738,24 @@ export default function TaskTimer() {
       });
     });
     if (!toAdd.length) { setCalendarOpen(false); return; }
+
+    // Deduplicate — skip tasks that already exist with same name + scheduled_date
+    const filtered = toAdd.filter(newTask =>
+      !tasks.some(existing =>
+        existing.name === newTask.name &&
+        existing.scheduled_date === newTask.scheduled_date &&
+        !existing.done
+      )
+    );
+
+    if (!filtered.length) {
+      showSync("Already added", "ok");
+      setCalendarOpen(false);
+      return;
+    }
+
     showSync("Saving…", "saving", 0);
-    const { data, error } = await supabase.from("tasks").insert(toAdd).select();
+    const { data, error } = await supabase.from("tasks").insert(filtered).select();
     if (!error && data) { setTasks(prev => [...prev, ...data]); showSync(`✓ Added ${data.length} tasks`, "ok"); }
     else showSync("Save failed", "err");
     setCalendarOpen(false);
@@ -858,8 +873,22 @@ export default function TaskTimer() {
               )}
               <div className="slots-avail"><strong>{slots15}</strong> × 15min &nbsp;·&nbsp; <strong>{slots5}</strong> × 5min left</div>
             </div>
-            <div style={{textAlign:"right"}}>
+            <div style={{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
               <div className={`sync-status${syncType ? " "+syncType : ""}`}>{syncStatus || "● Live"}</div>
+              <button
+                onClick={() => setActiveDay(activeDay==="pool" ? (weekDays.includes(today) ? today : weekDays[0]) : "pool")}
+                style={{
+                  background: activeDay==="pool" ? "var(--purple)" : "var(--surface)",
+                  color: activeDay==="pool" ? "#fff" : "var(--purple)",
+                  border: "1.5px solid var(--purple)",
+                  borderRadius: 8, padding: "4px 10px",
+                  fontSize: 11, fontWeight: 700, cursor: "pointer",
+                  fontFamily: "'Inter',sans-serif",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}
+              >
+                Pool {tabCount("pool") > 0 && <span style={{background:"rgba(0,0,0,.15)",borderRadius:99,fontSize:9,padding:"0 4px"}}>{tabCount("pool")}</span>}
+              </button>
             </div>
           </div>
           {activeDay !== "pool" && (
@@ -890,14 +919,7 @@ export default function TaskTimer() {
                 </button>
               );
             })}
-            <button
-              className={`day-tab pool${activeDay==="pool"?" active pool":""}`}
-              onClick={() => setActiveDay("pool")}
-            >
-              <span className="day-name">Pool</span>
-              <span className="day-date">all tasks</span>
-              {tabCount("pool") > 0 && <span className="task-count">{tabCount("pool")}</span>}
-            </button>
+
           </div>
         </div>
 

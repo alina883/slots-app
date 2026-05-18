@@ -164,6 +164,19 @@ const css = `
   body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);}
   .app{display:flex;flex-direction:column;min-height:100dvh;max-width:480px;margin:0 auto;}
 
+
+/* BUCKET VISUALS */
+  .task-card.HOME { border-left: 5px solid var(--green) !important; }
+  .task-card.SELF { border-left: 5px solid var(--purple) !important; }
+  .task-card.WORK { border-left: 5px solid var(--orange) !important; }
+  .task-card.ADMIN { border-left: 5px solid var(--red) !important; }
+
+  /* Optional: Subtly tint the background of the active task based on bucket */
+  .task-card.is-active.HOME { background: var(--green-light); }
+  .task-card.is-active.SELF { background: var(--purple-light); }
+  .task-card.is-active.WORK { background: var(--orange-light); }
+  .task-card.is-active.ADMIN { background: var(--red-light); }
+
   /* HEADER */
   .header{padding:16px 20px 12px;border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:10;}
   .header-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px;}
@@ -659,10 +672,10 @@ const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_s
     const isActive = task.id === activeId;
     const isRecurring = !!task.recurring_task_id;
     const cls = ["task-card",
+      task.bucket, // <--- Add this line here
       isActive ? "is-active" : task.done ? "is-done" : task.partial ? "is-partial" : task.mode === "open" ? "is-open" : "",
       isRecurring ? "is-recurring" : "",
     ].filter(Boolean).join(" ");
-
     const estMins = task.estimated_slots * task.slot_minutes;
     const actMins = (task.actual_slots || 0) * task.slot_minutes;
     const label   = task.done ? `${estMins}min est · ${actMins}min real` : `${task.estimated_slots} × ${task.slot_minutes}min`;

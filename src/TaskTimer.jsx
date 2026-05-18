@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
+const SUPABASE_URL = "https://cdzanvtkqkyexljvovan.supabase.co";
+const SUPABASE_KEY = "sb_publishable_IgUV3oZYjYrtvkJUa33aEg_5FD9vJ2B";
+const supabase     = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // ── SEQUENCES ─────────────────────────────────────────────────────
 const SEQUENCES = {
@@ -107,8 +109,8 @@ function SwipeCard({ onSwipeLeft, onSwipeRight, children, disabled }) {
     const dx = e.touches[0].clientX - startX.current;
     const clamped = Math.max(-90, Math.min(90, dx));
     setOffset(clamped);
-    if (clamped < -40)      setAction("edit");
-    else if (clamped > 40)  setAction("delete");
+    if (clamped < -40)      setAction("delete");
+    else if (clamped > 40)  setAction("edit");
     else                    setAction(null);
   }
 
@@ -148,7 +150,8 @@ function SwipeCard({ onSwipeLeft, onSwipeRight, children, disabled }) {
 
 // ── CSS ───────────────────────────────────────────────────────────
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
     --bg:#fafaf8;--surface:#f0efea;--border:#e2e0d8;
     --text:#1a1916;--muted:#928f84;
@@ -190,6 +193,14 @@ const css = `
   .sync-status.ok{color:var(--green);}
   .sync-status.err{color:var(--red);}
   .swipe-hint{font-size:10px;color:var(--muted);text-align:center;margin-top:4px;letter-spacing:.02em;}
+
+.bucket-row { display: flex; gap: 6px; margin-bottom: 10px; }
+  .bucket-btn { flex: 1; padding: 8px 4px; border-radius: 8px; font-family: 'DM Sans', sans-serif; font-size: 11px; font-weight: 700; cursor: pointer; border: 1.5px solid var(--border); background: #fff; color: var(--muted); transition: all 0.2s; letter-spacing: 0.05em; }
+  .bucket-btn.active.HOME { background: var(--green-light); border-color: var(--green); color: var(--green); }
+  .bucket-btn.active.SELF { background: var(--purple-light); border-color: var(--purple); color: var(--purple); }
+  .bucket-btn.active.WORK { background: var(--orange-light); border-color: var(--orange); color: var(--orange); }
+  .bucket-btn.active.ADMIN { background: var(--red-light); border-color: var(--red); color: var(--red); }
+
 
   /* TASK LIST */
   .task-list{flex:1;overflow-y:auto;padding:12px 20px;display:flex;flex-direction:column;gap:7px;}
@@ -293,7 +304,7 @@ const css = `
   .ring-prog{fill:none;stroke:var(--red);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset 1s linear,stroke .3s;}
   .ring-prog.open{stroke:var(--purple);}
   .ring-prog.urgent{stroke:var(--orange);}
-  .ring-digits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-ser.ring-digits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;letter-spacing:-2px;color:var(--text);}f;font-size:48px;font-weight:800;letter-spacing:-2px;color:var(--text);}
+  .ring-digits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;letter-spacing:-2px;color:var(--text);}
   .timer-btns{display:flex;gap:10px;width:100%;max-width:320px;margin-bottom:10px;}
   .btn-more{flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:12px;padding:12px;font-size:12px;cursor:pointer;text-align:center;line-height:1.5;font-family:'DM Sans',sans-serif;}
   .btn-done{flex:1;background:var(--green);border:none;color:#fff;border-radius:12px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}
@@ -324,6 +335,7 @@ const css = `
 
 // ── MAIN ──────────────────────────────────────────────────────────
 export default function TaskTimer() {
+  const [selectedBucket, setSelectedBucket] = useState("HOME");
   const [tasks, setTasks]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [dbError, setDbError]   = useState(null);
@@ -480,7 +492,7 @@ export default function TaskTimer() {
       if (match) { setSeqData({ seq: match.seq, originalName: name }); setTaskInput(""); return; }
     }
     showSync("Saving…", "saving", 0);
-    const saved = await insertTask({ name, mode, estimated_slots: slotsOverride ?? newSlots, slot_minutes: slotMinsOverride ?? slotType, actual_slots: 0, done: false, partial: false, sequence_key: seqKey || null });
+    const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_slots: slotsOverride ?? newSlots, slot_minutes: slotMinsOverride ?? slotType, actual_slots: 0, done: false, partial: false, sequence_key: seqKey || null });
     if (saved) { setTasks(prev => [...prev, saved]); showSync("✓ Saved", "ok"); }
     if (!nameOverride) { setTaskInput(""); setNewSlots(1); }
   }
@@ -535,7 +547,7 @@ export default function TaskTimer() {
   // ── QUICK CAPTURE ─────────────────────────────────────────────
   async function quickCapture() {
     const name = quickInput.trim(); if (!name) return;
-    const saved = await insertTask({ name, mode, estimated_slots: 1, slot_minutes: 15, actual_slots: 0, done: false, partial: false });
+const saved = await insertTask({ name, mode, bucket: selectedBucket, estimated_slots: slotsOverride ?? newSlots, slot_minutes: slotMinsOverride ?? slotType, actual_slots: 0, done: false, partial: false, sequence_key: seqKey || null });
     if (saved) { setTasks(prev => [...prev, saved]); setCaptureMsg(`✓ "${name.slice(0,28)}" added`); setTimeout(() => setCaptureMsg(""), 2500); }
     setQuickInput("");
   }
@@ -696,7 +708,7 @@ export default function TaskTimer() {
   if (loading) return <><style>{css}</style><div className="loading">Loading your tasks…</div></>;
 
   return (
-    <>
+  <>
       <style>{css}</style>
       <div className="app">
 
@@ -752,12 +764,25 @@ export default function TaskTimer() {
           {done.length    > 0 && <><div className="section-label">✓ Done</div>{done.map(buildCard)}</>}
         </div>
 
-        {/* ADD TASK */}
+{/* ADD TASK */}
         <div className="add-section">
+          <div className="bucket-row">
+            {["HOME", "SELF", "WORK", "ADMIN"].map(b => (
+              <button 
+                key={b} 
+                className={`bucket-btn ${selectedBucket === b ? `active ${b}` : ""}`}
+                onClick={() => setSelectedBucket(b)}
+              >
+                {b}
+              </button>
+            ))}
+          </div>
+          
           <div className="add-row">
             <input className="input-task" value={taskInput} onChange={e=>setTaskInput(e.target.value)}
               onKeyDown={e=>e.key==="Enter"&&addTask()} placeholder="What needs doing?" autoComplete="off"/>
           </div>
+
           <div className="add-row">
             <div className="slot-controls">
               <div className="slot-toggle">
@@ -772,6 +797,7 @@ export default function TaskTimer() {
               </div>
             </div>
           </div>
+          
           <button className={`btn-add${mode==="open"?" open":""}`} onClick={()=>addTask()}>+ Add Task</button>
         </div>
 
@@ -882,8 +908,7 @@ export default function TaskTimer() {
             <button className="btn-alarm-interrupt" onClick={markInterrupted}>⚠️ Got interrupted</button>
           </div>
         </div>
-
-      </div>
+</div>
     </>
   );
 }

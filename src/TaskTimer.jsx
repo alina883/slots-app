@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const SUPABASE_URL = "https://cdzanvtkqkyexljvovan.supabase.co";
-const SUPABASE_KEY = "sb_publishable_IgUV3oZYjYrtvkJUa33aEg_5FD9vJ2B";
-const supabase     = createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabase = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_ANON_KEY);
 
 // ── SEQUENCES ─────────────────────────────────────────────────────
 const SEQUENCES = {
@@ -109,8 +107,8 @@ function SwipeCard({ onSwipeLeft, onSwipeRight, children, disabled }) {
     const dx = e.touches[0].clientX - startX.current;
     const clamped = Math.max(-90, Math.min(90, dx));
     setOffset(clamped);
-    if (clamped < -40)      setAction("delete");
-    else if (clamped > 40)  setAction("edit");
+    if (clamped < -40)      setAction("edit");
+    else if (clamped > 40)  setAction("delete");
     else                    setAction(null);
   }
 
@@ -150,8 +148,7 @@ function SwipeCard({ onSwipeLeft, onSwipeRight, children, disabled }) {
 
 // ── CSS ───────────────────────────────────────────────────────────
 const css = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap');
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
   :root{
     --bg:#fafaf8;--surface:#f0efea;--border:#e2e0d8;
     --text:#1a1916;--muted:#928f84;
@@ -172,7 +169,7 @@ const css = `
   .mode-tab.deadline{background:var(--red);color:#fff;border-color:var(--red);}
   .mode-tab.open{background:var(--purple);color:#fff;border-color:var(--purple);}
   .deadline-row{display:flex;align-items:center;gap:8px;}
-  .countdown{font-family:'Syne',sans-serif;font-size:36px;font-weight:800;line-height:1;color:var(--red);}
+  .countdown{font-size:36px;font-weight:700;line-height:1;color:var(--red);}
   .countdown.open-mode{color:var(--purple);font-size:20px;font-weight:700;}
   .countdown.urgent{animation:pulse .9s ease-in-out infinite;}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
@@ -296,7 +293,7 @@ const css = `
   .ring-prog{fill:none;stroke:var(--red);stroke-width:8;stroke-linecap:round;transition:stroke-dashoffset 1s linear,stroke .3s;}
   .ring-prog.open{stroke:var(--purple);}
   .ring-prog.urgent{stroke:var(--orange);}
-  .ring-digits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-size:48px;font-weight:800;letter-spacing:-2px;color:var(--text);}
+  .ring-digits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-ser.ring-digits{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:48px;font-weight:700;letter-spacing:-2px;color:var(--text);}f;font-size:48px;font-weight:800;letter-spacing:-2px;color:var(--text);}
   .timer-btns{display:flex;gap:10px;width:100%;max-width:320px;margin-bottom:10px;}
   .btn-more{flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:12px;padding:12px;font-size:12px;cursor:pointer;text-align:center;line-height:1.5;font-family:'DM Sans',sans-serif;}
   .btn-done{flex:1;background:var(--green);border:none;color:#fff;border-radius:12px;padding:12px;font-size:15px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif;}

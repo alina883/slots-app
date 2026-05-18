@@ -446,8 +446,10 @@ export default function TaskTimer() {
   const sessionStartRef           = useRef(null);
 
   // Daily review / evening recap
-  const [reviewOpen, setReviewOpen] = useState(false);
-  const [recapOpen, setRecapOpen]   = useState(false);
+  const [reviewOpen, setReviewOpen]   = useState(false);
+  const [recapOpen, setRecapOpen]     = useState(false);
+  const [intention, setIntention]     = useState({ show_up_as: "", one_goal: "", grateful_for: "" });
+  const [intentionSaving, setIntentionSaving] = useState(false);
 
   // Quick capture
   const [quickInput, setQuickInput] = useState("");
@@ -460,7 +462,20 @@ export default function TaskTimer() {
   useEffect(() => { if (secsLeft === 0 && activeId && !alarmOn) triggerAlarm(); }, [secsLeft]);
 
   // ── LOAD ──────────────────────────────────────────────────────
-  useEffect(() => { loadTasks(); expireRecurring(); }, []);
+  useEffect(() => { loadTasks(); expireRecurring(); loadIntention(); }, []);
+
+  async function loadIntention() {
+    const { data } = await supabase.from("daily_intentions").select("*").eq("date", todayStr()).single();
+    if (data) setIntention({ show_up_as: data.show_up_as || "", one_goal: data.one_goal || "", grateful_for: data.grateful_for || "" });
+  }
+
+  async function saveIntention(updates) {
+    setIntentionSaving(true);
+    const merged = { ...intention, ...updates };
+    setIntention(merged);
+    await supabase.from("daily_intentions").upsert([{ date: todayStr(), ...merged }], { onConflict: "date" });
+    setIntentionSaving(false);
+  }
 
   async function loadTasks() {
     setLoading(true);
@@ -1318,24 +1333,49 @@ export default function TaskTimer() {
         <div className={`sheet-backdrop${reviewOpen?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setReviewOpen(false)}>
           <div className="sheet">
             <div className="sheet-title">🌅 Daily review</div>
-            <div className="sheet-sub">{`Today is ${new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}. Here's what you have.`}</div>
+            <div className="sheet-sub">{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
 
             {/* Slot summary */}
             <div style={{background:"var(--surface)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
               <div style={{fontSize:13,fontWeight:600,marginBottom:4}}>⏱ Time available today</div>
               <div style={{fontSize:22,fontWeight:700,color:"var(--red)"}}>{slots15} × 15min slots</div>
               <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{slots5} × 5min slots · {availMins}min total</div>
-              {budgetOver && <div style={{fontSize:11,color:"var(--orange)",marginTop:4,fontWeight:600}}>⚠️ You've assigned more time than you have — consider moving some tasks to Pool</div>}
+              {budgetOver && <div style={{fontSize:11,color:"var(--orange)",marginTop:4,fontWeight:600}}>⚠️ You've assigned more time than you have</div>}
+            </div>
+
+            {/* Intention */}
+            <div style={{marginBottom:14}}>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:6}}>Today I want to show up as…</div>
+              <textarea
+                value={intention.show_up_as}
+                onChange={e => setIntention(p => ({...p, show_up_as: e.target.value}))}
+                onBlur={() => saveIntention({ show_up_as: intention.show_up_as })}
+                placeholder="e.g. present, focused, patient…"
+                rows={2}
+                style={{width:"100%",background:"#fff",border:"1.5px solid var(--border)",borderRadius:10,padding:"10px 12px",fontSize:13,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none",resize:"none",lineHeight:1.5}}
+              />
+            </div>
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:6}}>If I had to pick one goal to achieve today, it would be…</div>
+              <textarea
+                value={intention.one_goal}
+                onChange={e => setIntention(p => ({...p, one_goal: e.target.value}))}
+                onBlur={() => saveIntention({ one_goal: intention.one_goal })}
+                placeholder="Be specific — one clear outcome…"
+                rows={2}
+                style={{width:"100%",background:"#fff",border:"1.5px solid var(--border)",borderRadius:10,padding:"10px 12px",fontSize:13,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none",resize:"none",lineHeight:1.5}}
+              />
+              {intentionSaving && <div style={{fontSize:10,color:"var(--muted)",marginTop:3}}>Saving…</div>}
             </div>
 
             {/* Today's tasks */}
             <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:8}}>Scheduled today</div>
             {tasks.filter(t => t.scheduled_date === today && !t.done).length === 0 && (
-              <div style={{fontSize:13,color:"var(--muted)",marginBottom:12}}>Nothing scheduled yet — add tasks below or drag from the Pool.</div>
+              <div style={{fontSize:13,color:"var(--muted)",marginBottom:12}}>Nothing scheduled yet.</div>
             )}
             {tasks.filter(t => t.scheduled_date === today && !t.done).map(task => (
               <div key={task.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 0",borderBottom:"1px solid var(--border)"}}>
-                <div style={{width:10,height:10,borderRadius:2,background:task.bucket==="HOME"?"var(--green)":task.bucket==="SELF"?"var(--purple)":task.bucket==="WORK"?"var(--orange)":"var(--red)",flexShrink:0}}/>
+                <div style={{width:10,height:10,borderRadius:2,flexShrink:0,background:task.bucket==="HOME"?"var(--green)":task.bucket==="SELF"?"var(--purple)":task.bucket==="WORK"?"var(--orange)":"var(--red)"}}/>
                 <span style={{flex:1,fontSize:13,fontWeight:500}}>{task.name}</span>
                 <span style={{fontSize:11,color:"var(--muted)"}}>{task.estimated_slots * task.slot_minutes}min</span>
                 <button
@@ -1356,16 +1396,33 @@ export default function TaskTimer() {
         <div className={`sheet-backdrop${recapOpen?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setRecapOpen(false)}>
           <div className="sheet">
             <div className="sheet-title">🌙 Evening recap</div>
-            <div className="sheet-sub">Here's how today went.</div>
+            <div className="sheet-sub">{new Date().toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long"})}</div>
 
             {(() => {
               const todayDone    = tasks.filter(t => t.scheduled_date === today && t.done);
               const todayLeft    = tasks.filter(t => t.scheduled_date === today && !t.done && !t.partial);
               const todayPartial = tasks.filter(t => t.scheduled_date === today && t.partial);
               const doneMins     = todayDone.reduce((a,t) => a + t.estimated_slots * t.slot_minutes, 0);
+
+              // Bucket breakdown
+              const buckets = ["HOME","SELF","WORK","ADMIN"];
+              const bucketColors = { HOME:"var(--green)", SELF:"var(--purple)", WORK:"var(--orange)", ADMIN:"var(--red)" };
+              const bucketBg    = { HOME:"var(--green-light)", SELF:"var(--purple-light)", WORK:"var(--orange-light)", ADMIN:"var(--red-light)" };
+              const filledBuckets = buckets.filter(b => todayDone.some(t => t.bucket === b));
+              const allFilled = filledBuckets.length === 4;
+
               return (
                 <>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16}}>
+                  {/* Intention reflection */}
+                  {(intention.show_up_as || intention.one_goal) && (
+                    <div style={{background:"var(--surface)",borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+                      {intention.show_up_as && <div style={{marginBottom:6}}><span style={{fontSize:11,color:"var(--muted)",fontWeight:600}}>You wanted to show up as </span><span style={{fontSize:13,fontWeight:600}}>{intention.show_up_as}</span></div>}
+                      {intention.one_goal   && <div><span style={{fontSize:11,color:"var(--muted)",fontWeight:600}}>Your goal was </span><span style={{fontSize:13,fontWeight:600}}>{intention.one_goal}</span></div>}
+                    </div>
+                  )}
+
+                  {/* Stats */}
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:12}}>
                     <div style={{background:"var(--green-light)",borderRadius:10,padding:"10px 12px",textAlign:"center"}}>
                       <div style={{fontSize:22,fontWeight:700,color:"var(--green)"}}>{todayDone.length}</div>
                       <div style={{fontSize:10,color:"var(--green)",fontWeight:600}}>DONE</div>
@@ -1381,29 +1438,56 @@ export default function TaskTimer() {
                   </div>
                   <div style={{fontSize:13,color:"var(--muted)",marginBottom:14}}>You completed <strong style={{color:"var(--text)"}}>{doneMins}min</strong> of work today.</div>
 
+                  {/* Bucket breakdown */}
+                  <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:8}}>
+                    Buckets filled today {allFilled && <span style={{fontSize:18,marginLeft:4}}>⭐</span>}
+                  </div>
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:16}}>
+                    {buckets.map(b => {
+                      const count = todayDone.filter(t => t.bucket === b).length;
+                      const filled = count > 0;
+                      return (
+                        <div key={b} style={{background: filled ? bucketBg[b] : "var(--surface)", borderRadius:8, padding:"8px 12px", display:"flex", alignItems:"center", gap:8, opacity: filled ? 1 : 0.45}}>
+                          <div style={{width:8,height:8,borderRadius:2,background:bucketColors[b],flexShrink:0}}/>
+                          <span style={{fontSize:12,fontWeight:700,color:filled?bucketColors[b]:"var(--muted)"}}>{b}</span>
+                          {filled && <span style={{fontSize:11,color:bucketColors[b],marginLeft:"auto"}}>{count} done</span>}
+                          {!filled && <span style={{fontSize:11,color:"var(--muted)",marginLeft:"auto"}}>none</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Leftover tasks */}
                   {todayLeft.length > 0 && (
                     <>
-                      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:8}}>Still to do — move to Pool or tomorrow?</div>
+                      <div style={{fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:8}}>Still to do</div>
                       {todayLeft.map(task => (
                         <div key={task.id} style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0",borderBottom:"1px solid var(--border)"}}>
                           <span style={{flex:1,fontSize:13}}>{task.name}</span>
-                          <button
-                            onClick={async () => { const tmr = addDays(today,1); await updateTask(task.id,{scheduled_date:tmr}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:tmr}:t)); }}
-                            style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--text)",fontFamily:"'Inter',sans-serif",fontWeight:600}}
-                          >Tomorrow</button>
-                          <button
-                            onClick={async () => { await updateTask(task.id,{scheduled_date:null}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:null}:t)); }}
-                            style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--muted)",fontFamily:"'Inter',sans-serif"}}
-                          >Pool</button>
+                          <button onClick={async () => { const tmr = addDays(today,1); await updateTask(task.id,{scheduled_date:tmr}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:tmr}:t)); }} style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--text)",fontFamily:"'Inter',sans-serif",fontWeight:600}}>Tomorrow</button>
+                          <button onClick={async () => { await updateTask(task.id,{scheduled_date:null}); setTasks(prev=>prev.map(t=>t.id===task.id?{...t,scheduled_date:null}:t)); }} style={{fontSize:10,padding:"2px 7px",borderRadius:5,border:"1px solid var(--border)",background:"#fff",cursor:"pointer",color:"var(--muted)",fontFamily:"'Inter',sans-serif"}}>Pool</button>
                         </div>
                       ))}
                     </>
                   )}
+
+                  {/* Gratitude */}
+                  <div style={{marginTop:16,marginBottom:4}}>
+                    <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:6}}>Today I am grateful for…</div>
+                    <textarea
+                      value={intention.grateful_for}
+                      onChange={e => setIntention(p => ({...p, grateful_for: e.target.value}))}
+                      onBlur={() => saveIntention({ grateful_for: intention.grateful_for })}
+                      placeholder="Take a moment…"
+                      rows={3}
+                      style={{width:"100%",background:"#fff",border:"1.5px solid var(--border)",borderRadius:10,padding:"10px 12px",fontSize:13,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none",resize:"none",lineHeight:1.5}}
+                    />
+                  </div>
                 </>
               );
             })()}
 
-            <div style={{marginTop:16}}>
+            <div style={{marginTop:12}}>
               <button className="btn-sheet-cancel" style={{width:"100%"}} onClick={() => setRecapOpen(false)}>Close</button>
             </div>
           </div>

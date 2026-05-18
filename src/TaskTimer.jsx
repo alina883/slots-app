@@ -431,7 +431,10 @@ export default function TaskTimer() {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError]   = useState("");
   const [calBucket, setCalBucket]           = useState("HOME");
-  const [selectedEventTasks, setSelectedEventTasks] = useState({});
+  // eventTasks: { [eventId]: [ { name, slotMinutes, slots, whenOffset, checked } ] }
+  const [eventTasks, setEventTasks]         = useState({});
+  const [customInputs, setCustomInputs]     = useState({}); // { [eventId]: { name, slotMinutes, slots, whenOffset } }
+  const [learnedPatterns, setLearnedPatterns] = useState([]);
 
   // Timer
   const [activeId, setActiveId]   = useState(null);
@@ -699,65 +702,170 @@ export default function TaskTimer() {
   }
 
   // ── CALENDAR ─────────────────────────────────────────────────
+  // ── SMART EVENT DEFAULTS ────────────────────────────────────────
+  const EVENT_DEFAULTS = {
+    gym:        [
+      { name: "Pack gym bag",    slotMinutes: 5,  slots: 1, whenOffset: -1 },
+      { name: "Drive to gym",    slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Shower & change", slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Drive home",      slotMinutes: 15, slots: 1, whenOffset: 0  },
+    ],
+    seminar:    [
+      { name: "Prepare notes",      slotMinutes: 15, slots: 1, whenOffset: -1 },
+      { name: "Check joining link", slotMinutes: 5,  slots: 1, whenOffset: -1 },
+      { name: "Leave 10 min early", slotMinutes: 5,  slots: 1, whenOffset: 0  },
+    ],
+    workshop:   [
+      { name: "Prepare materials",  slotMinutes: 15, slots: 1, whenOffset: -1 },
+      { name: "Leave 10 min early", slotMinutes: 5,  slots: 1, whenOffset: 0  },
+    ],
+    meeting:    [
+      { name: "Prepare agenda",     slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Check connection",   slotMinutes: 5,  slots: 1, whenOffset: 0  },
+    ],
+    meetup:     [
+      { name: "Prepare talking points", slotMinutes: 15, slots: 1, whenOffset: -1 },
+      { name: "Travel there",           slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Travel home",            slotMinutes: 15, slots: 1, whenOffset: 0  },
+    ],
+    founders:   [
+      { name: "Prepare talking points", slotMinutes: 15, slots: 1, whenOffset: -1 },
+      { name: "Travel there",           slotMinutes: 15, slots: 1, whenOffset: 0  },
+      { name: "Travel home",            slotMinutes: 15, slots: 1, whenOffset: 0  },
+    ],
+    dentist:    [
+      { name: "Drive to dentist", slotMinutes: 15, slots: 1, whenOffset: 0 },
+      { name: "Drive home",       slotMinutes: 15, slots: 1, whenOffset: 0 },
+    ],
+    doctor:     [
+      { name: "Drive to doctor",  slotMinutes: 15, slots: 1, whenOffset: 0 },
+      { name: "Drive home",       slotMinutes: 15, slots: 1, whenOffset: 0 },
+    ],
+  };
+
+  function getDefaultTasks(eventTitle, learnedPatterns) {
+    const lower = eventTitle.toLowerCase();
+    // Check learned patterns first
+    const learned = learnedPatterns.filter(p => lower.includes(p.event_keyword.toLowerCase()));
+    if (learned.length) {
+      return learned.map(p => ({ name: p.task_name, slotMinutes: p.slot_minutes, slots: p.slots, whenOffset: p.when_offset, checked: true }));
+    }
+    // Fall back to built-in defaults
+    for (const [keyword, tasks] of Object.entries(EVENT_DEFAULTS)) {
+      if (lower.includes(keyword)) return tasks.map(t => ({ ...t, checked: true }));
+    }
+    return [];
+  }
+
   async function openPlanMyWeek() {
-    setCalendarOpen(true); setCalendarLoading(true); setCalendarError(""); setCalendarEvents([]); setSelectedEventTasks({});
+    setCalendarOpen(true); setCalendarLoading(true); setCalendarError("");
+    setCalendarEvents([]); setEventTasks({}); setCustomInputs({});
     try {
+      // Load learned patterns
+      const { data: patterns } = await supabase.from("event_patterns").select("*");
+      setLearnedPatterns(patterns || []);
+
       const res  = await fetch(`${FUNCTION_URL}?action=events`, { headers: { Authorization: `Bearer ${SUPABASE_KEY}` } });
       const data = await res.json();
       if (data.error === "NOT_CONNECTED") { setCalendarError("NOT_CONNECTED"); setCalendarLoading(false); return; }
       if (data.error) throw new Error(data.error);
-      setCalendarEvents(data.events || []);
+
+      const events = data.events || [];
+      setCalendarEvents(events);
+
+      // Build task list for every event
       const initial = {};
-      (data.events || []).forEach(e => { if (e.sequence) initial[e.id] = e.sequence.tasks.map(() => true); });
-      setSelectedEventTasks(initial);
+      const initialInputs = {};
+      events.forEach(e => {
+        initial[e.id] = getDefaultTasks(e.title, patterns || []);
+        initialInputs[e.id] = { name: "", slotMinutes: 15, slots: 1, whenOffset: 0 };
+      });
+      setEventTasks(initial);
+      setCustomInputs(initialInputs);
     } catch(err) { setCalendarError(err.message); }
     setCalendarLoading(false);
   }
 
-  function toggleEventTask(eventId, idx) {
-    setSelectedEventTasks(prev => ({ ...prev, [eventId]: prev[eventId].map((v, i) => i === idx ? !v : v) }));
+  function toggleCalTask(eventId, idx) {
+    setEventTasks(prev => ({
+      ...prev,
+      [eventId]: prev[eventId].map((t, i) => i === idx ? { ...t, checked: !t.checked } : t),
+    }));
+  }
+
+  function updateCalTaskOffset(eventId, idx, offset) {
+    setEventTasks(prev => ({
+      ...prev,
+      [eventId]: prev[eventId].map((t, i) => i === idx ? { ...t, whenOffset: offset } : t),
+    }));
+  }
+
+  function addCustomTask(eventId) {
+    const input = customInputs[eventId];
+    if (!input?.name?.trim()) return;
+    const newTask = { name: input.name.trim(), slotMinutes: input.slotMinutes, slots: input.slots, whenOffset: input.whenOffset, checked: true, isCustom: true };
+    setEventTasks(prev => ({ ...prev, [eventId]: [...(prev[eventId] || []), newTask] }));
+    setCustomInputs(prev => ({ ...prev, [eventId]: { name: "", slotMinutes: 15, slots: 1, whenOffset: 0 } }));
+  }
+
+  function updateCustomInput(eventId, field, value) {
+    setCustomInputs(prev => ({ ...prev, [eventId]: { ...prev[eventId], [field]: value } }));
   }
 
   async function addCalendarTasks() {
     const toAdd = [];
+    const toLearn = [];
+
     calendarEvents.forEach(event => {
-      if (!event.sequence) return;
-      const checks = selectedEventTasks[event.id] || [];
+      const tasks = eventTasks[event.id] || [];
       const eventDate = event.start?.slice(0, 10);
-      const schDate   = weekDays.includes(eventDate) ? eventDate : null;
-      event.sequence.tasks.forEach((task, idx) => {
-        if (checks[idx]) {
-          toAdd.push({
-            name: `${task.name} — ${event.title}`,
-            mode: "deadline", bucket: calBucket,
-            estimated_slots: task.slots, slot_minutes: task.slotMinutes,
-            actual_slots: 0, done: false, partial: false,
-            sequence_key: "calendar", scheduled_date: schDate,
-          });
+
+      tasks.filter(t => t.checked).forEach(task => {
+        const schDate = eventDate
+          ? (task.whenOffset === -1 ? addDays(eventDate, -1) : eventDate)
+          : null;
+        const finalDate = schDate && weekDays.includes(schDate) ? schDate : schDate;
+
+        toAdd.push({
+          name: `${task.name} — ${event.title}`,
+          mode: "deadline", bucket: calBucket,
+          estimated_slots: task.slots, slot_minutes: task.slotMinutes,
+          actual_slots: 0, done: false, partial: false,
+          sequence_key: "calendar", scheduled_date: finalDate,
+        });
+
+        // Save custom tasks as learned patterns
+        if (task.isCustom) {
+          const lower = event.title.toLowerCase();
+          const keyword = Object.keys(EVENT_DEFAULTS).find(k => lower.includes(k)) || event.title.toLowerCase().split(" ")[0];
+          toLearn.push({ event_keyword: keyword, task_name: task.name, slot_minutes: task.slotMinutes, slots: task.slots, when_offset: task.whenOffset });
         }
       });
     });
-    if (!toAdd.length) { setCalendarOpen(false); return; }
 
-    // Deduplicate — skip tasks that already exist with same name + scheduled_date
+    // Deduplicate
     const filtered = toAdd.filter(newTask =>
-      !tasks.some(existing =>
-        existing.name === newTask.name &&
-        existing.scheduled_date === newTask.scheduled_date &&
-        !existing.done
-      )
+      !tasks.some(ex => ex.name === newTask.name && ex.scheduled_date === newTask.scheduled_date && !ex.done)
     );
 
-    if (!filtered.length) {
-      showSync("Already added", "ok");
-      setCalendarOpen(false);
-      return;
-    }
+    if (!filtered.length && !toLearn.length) { showSync("Already up to date", "ok"); setCalendarOpen(false); return; }
 
     showSync("Saving…", "saving", 0);
-    const { data, error } = await supabase.from("tasks").insert(filtered).select();
-    if (!error && data) { setTasks(prev => [...prev, ...data]); showSync(`✓ Added ${data.length} tasks`, "ok"); }
-    else showSync("Save failed", "err");
+
+    if (filtered.length) {
+      const { data, error } = await supabase.from("tasks").insert(filtered).select();
+      if (!error && data) { setTasks(prev => [...prev, ...data]); showSync(`✓ Added ${data.length} tasks`, "ok"); }
+      else { showSync("Save failed", "err"); return; }
+    }
+
+    // Save learned patterns (avoid duplicates)
+    if (toLearn.length) {
+      for (const pattern of toLearn) {
+        const exists = learnedPatterns.some(p => p.event_keyword === pattern.event_keyword && p.task_name === pattern.task_name);
+        if (!exists) await supabase.from("event_patterns").insert([pattern]);
+      }
+    }
+
     setCalendarOpen(false);
   }
 
@@ -1064,7 +1172,7 @@ export default function TaskTimer() {
         <div className={`sheet-backdrop${calendarOpen?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setCalendarOpen(false)}>
           <div className="sheet">
             <div className="sheet-title">📅 Plan my week</div>
-            <div className="sheet-sub">Calendar events for the next 7 days. Tick the prep tasks you want to add.</div>
+            <div className="sheet-sub">Every event is actionable. Tick tasks, set when, add your own.</div>
 
             {calendarLoading && <div className="cal-loading">Fetching your calendar…</div>}
 
@@ -1083,9 +1191,8 @@ export default function TaskTimer() {
 
             {!calendarLoading && !calendarError && (
               <>
-                {/* Bucket picker for calendar tasks */}
                 <div style={{marginBottom:10}}>
-                  <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>Assign to bucket:</div>
+                  <div style={{fontSize:11,color:"var(--muted)",marginBottom:6}}>Bucket:</div>
                   <div className="cal-bucket-row">
                     {["HOME","SELF","WORK","ADMIN"].map(b => (
                       <button key={b} className={`bucket-btn${calBucket===b?" active "+b:""}`} onClick={() => setCalBucket(b)}>{b}</button>
@@ -1093,52 +1200,83 @@ export default function TaskTimer() {
                   </div>
                 </div>
 
-                {calendarEvents.filter(e => e.sequence).length > 0 && (
-                  <>
-                    <div className="cal-section-label">✨ Suggested prep tasks</div>
-                    {calendarEvents.filter(e => e.sequence).map(event => (
-                      <div key={event.id} className="cal-event">
-                        <div className="cal-event-header">
-                          <div className="cal-event-title">{event.title}</div>
-                          <div className="cal-event-time">{formatEventTime(event.start, event.allDay)}</div>
-                        </div>
-                        {event.sequence.tasks.map((task, idx) => {
-                          const checked = selectedEventTasks[event.id]?.[idx] ?? true;
-                          return (
-                            <div key={idx} className="cal-task-row" onClick={() => toggleEventTask(event.id, idx)}>
-                              <div className={`cal-check${checked?" on":""}`}>{checked?"✓":""}</div>
-                              <span className="cal-task-name">{task.name}</span>
-                              <span className="cal-task-time">{task.slots>1?`${task.slots} × `:""}{task.slotMinutes}min</span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                    <button className="btn-add-cal" onClick={addCalendarTasks}>Add selected tasks to my week</button>
-                  </>
-                )}
-
-                {calendarEvents.length > 0 && (
-                  <>
-                    <div className="cal-section-label">📆 All events this week</div>
-                    <div className="all-events-list">
-                      {calendarEvents.map(event => (
-                        <div key={event.id} className="all-event-row">
-                          <div className="all-event-title">{event.title}</div>
-                          <div className="all-event-time">{formatEventTime(event.start, event.allDay)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-
                 {calendarEvents.length === 0 && (
                   <div style={{textAlign:"center",color:"var(--muted)",fontSize:13,padding:"30px 0"}}>No events in the next 7 days</div>
+                )}
+
+                {calendarEvents.map(event => {
+                  const tasks = eventTasks[event.id] || [];
+                  const custom = customInputs[event.id] || { name:"", slotMinutes:15, slots:1, whenOffset:0 };
+                  const hasChecked = tasks.some(t => t.checked);
+                  return (
+                    <div key={event.id} className="cal-event" style={{marginBottom:12}}>
+                      <div className="cal-event-header">
+                        <div className="cal-event-title">{event.title}</div>
+                        <div className="cal-event-time">{formatEventTime(event.start, event.allDay)}</div>
+                      </div>
+
+                      {/* Suggested + custom tasks */}
+                      {tasks.map((task, idx) => (
+                        <div key={idx} className="cal-task-row">
+                          <div className={`cal-check${task.checked?" on":""}`} onClick={() => toggleCalTask(event.id, idx)}>{task.checked?"✓":""}</div>
+                          <span className="cal-task-name" style={{opacity:task.checked?1:.45}}>{task.name}</span>
+                          <div style={{display:"flex",gap:4,alignItems:"center",flexShrink:0}}>
+                            <button
+                              onClick={() => updateCalTaskOffset(event.id, idx, 0)}
+                              style={{fontSize:10,padding:"2px 6px",borderRadius:5,border:"1px solid var(--border)",background:task.whenOffset===0?"var(--red)":"#fff",color:task.whenOffset===0?"#fff":"var(--muted)",cursor:"pointer",fontFamily:"'Inter',sans-serif",fontWeight:600}}
+                            >day of</button>
+                            <button
+                              onClick={() => updateCalTaskOffset(event.id, idx, -1)}
+                              style={{fontSize:10,padding:"2px 6px",borderRadius:5,border:"1px solid var(--border)",background:task.whenOffset===-1?"var(--purple)":"#fff",color:task.whenOffset===-1?"#fff":"var(--muted)",cursor:"pointer",fontFamily:"'Inter',sans-serif",fontWeight:600}}
+                            >day before</button>
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Add custom task row */}
+                      <div style={{padding:"8px 14px",borderTop:"1px solid var(--border)",display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                        <input
+                          value={custom.name}
+                          onChange={e => updateCustomInput(event.id, "name", e.target.value)}
+                          onKeyDown={e => e.key==="Enter"&&addCustomTask(event.id)}
+                          placeholder="+ add your own task…"
+                          style={{flex:1,minWidth:120,background:"var(--surface)",border:"1px solid var(--border)",borderRadius:7,padding:"6px 9px",fontSize:12,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none"}}
+                        />
+                        <select
+                          value={custom.slotMinutes}
+                          onChange={e => updateCustomInput(event.id, "slotMinutes", Number(e.target.value))}
+                          style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:7,padding:"6px 8px",fontSize:12,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none"}}
+                        >
+                          <option value={5}>5m</option>
+                          <option value={15}>15m</option>
+                          <option value={30}>30m</option>
+                        </select>
+                        <select
+                          value={custom.whenOffset}
+                          onChange={e => updateCustomInput(event.id, "whenOffset", Number(e.target.value))}
+                          style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:7,padding:"6px 8px",fontSize:12,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none"}}
+                        >
+                          <option value={0}>day of</option>
+                          <option value={-1}>day before</option>
+                        </select>
+                        <button
+                          onClick={() => addCustomTask(event.id)}
+                          style={{background:"var(--red)",color:"#fff",border:"none",borderRadius:7,padding:"6px 10px",fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif"}}
+                        >Add</button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {calendarEvents.length > 0 && (
+                  <button className="btn-add-cal" onClick={addCalendarTasks}>
+                    Add selected tasks to my week
+                  </button>
                 )}
               </>
             )}
 
-            <div className="sheet-actions" style={{marginTop:16}}>
+            <div className="sheet-actions" style={{marginTop:12}}>
               <button className="btn-sheet-cancel" onClick={() => setCalendarOpen(false)}>Close</button>
             </div>
           </div>

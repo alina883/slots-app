@@ -77,7 +77,7 @@ serve(async (req) => {
 
       toInsert.push({
         name: card.name, mode: "deadline", bucket,
-        estimated_slots: 1, slot_minutes: 15,
+        estimated_slots: 0, slot_minutes: 15,
         actual_slots: 0, done: false, partial: false,
         scheduled_date: scheduledDate,
         trello_card_id: card.id,

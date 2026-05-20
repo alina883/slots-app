@@ -418,8 +418,10 @@ export default function TaskTimer() {
   const [editSlots, setEditSlots] = useState(1);
 
   // Schedule sheet (swipe right from pool)
-  const [scheduleTask, setScheduleTask] = useState(null);
-  const [scheduleDay, setScheduleDay]   = useState(today);
+  const [scheduleTask, setScheduleTask]   = useState(null);
+  const [scheduleDay, setScheduleDay]     = useState(today);
+  const [scheduleSlots, setScheduleSlots] = useState(3);
+  const [scheduleSlotMins, setScheduleSlotMins] = useState(15);
 
   // Recurring
   const [recurringPrompt, setRecurringPrompt] = useState(null);
@@ -622,13 +624,20 @@ export default function TaskTimer() {
   }
 
   // ── SCHEDULE (swipe right) ────────────────────────────────────
-  function openSchedule(task) { setScheduleTask(task); setScheduleDay(task.scheduled_date || today); }
+  function openSchedule(task) {
+    setScheduleTask(task);
+    setScheduleDay(task.scheduled_date || today);
+    // Pre-fill with existing slots or default suggestion of 3 × 15min
+    setScheduleSlots(task.estimated_slots || 3);
+    setScheduleSlotMins(task.slot_minutes || 15);
+  }
 
   async function saveSchedule() {
     if (!scheduleTask) return;
     const schDate = scheduleDay === "pool" ? null : scheduleDay;
-    const ok = await updateTask(scheduleTask.id, { scheduled_date: schDate });
-    if (ok) setTasks(prev => prev.map(t => t.id === scheduleTask.id ? { ...t, scheduled_date: schDate } : t));
+    const updates = { scheduled_date: schDate, estimated_slots: scheduleSlots, slot_minutes: scheduleSlotMins };
+    const ok = await updateTask(scheduleTask.id, updates);
+    if (ok) setTasks(prev => prev.map(t => t.id === scheduleTask.id ? { ...t, ...updates } : t));
     setScheduleTask(null);
   }
 
@@ -1020,7 +1029,11 @@ export default function TaskTimer() {
 
     const estMins = task.estimated_slots * task.slot_minutes;
     const actMins = (task.actual_slots || 0) * task.slot_minutes;
-    const label   = task.done ? `${estMins}min est · ${actMins}min real` : `${task.estimated_slots} × ${task.slot_minutes}min`;
+    const label   = task.done
+      ? `${estMins}min est · ${actMins}min real`
+      : task.estimated_slots === 0
+        ? "unestimated — swipe to schedule"
+        : `${task.estimated_slots} × ${task.slot_minutes}min`;
 
     const card = (
       <div className={cls}>
@@ -1239,8 +1252,11 @@ export default function TaskTimer() {
         <div className={`sheet-backdrop${scheduleTask?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setScheduleTask(null)}>
           <div className="sheet">
             <div className="sheet-title">📅 Schedule task</div>
-            <div className="sheet-sub">"{scheduleTask?.name}" — which day?</div>
-            <div className="day-picker-grid">
+            <div className="sheet-sub">"{scheduleTask?.name}"</div>
+
+            {/* Day picker */}
+            <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:8}}>Which day?</div>
+            <div className="day-picker-grid" style={{marginBottom:16}}>
               {weekDays.map(date => (
                 <button key={date} className={`day-pick-btn${scheduleDay===date?" selected":""}${date===today?" is-today":""}`} onClick={() => setScheduleDay(date)}>
                   <span className="dp-day">{dayLabel(date)}</span>
@@ -1252,6 +1268,28 @@ export default function TaskTimer() {
                 <span className="dp-date">no date</span>
               </button>
             </div>
+
+            {/* Slot picker — only shown when scheduling to a day */}
+            {scheduleDay !== "pool" && (
+              <>
+                <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:8}}>How long?
+                  <span style={{fontSize:11,color:"var(--muted)",fontWeight:400,marginLeft:6}}>suggested: 3 × 15min</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+                  <div className="slot-toggle">
+                    <button className={`slot-toggle-btn${scheduleSlotMins===5?" active":""}`} onClick={() => setScheduleSlotMins(5)}>5m</button>
+                    <button className={`slot-toggle-btn${scheduleSlotMins===15?" active":""}`} onClick={() => setScheduleSlotMins(15)}>15m</button>
+                  </div>
+                  <div className="slot-stepper">
+                    <button className="slot-step-btn" onClick={() => setScheduleSlots(s => Math.max(1,s-1))}>−</button>
+                    <span className="slot-num">{scheduleSlots}</span>
+                    <span className="slot-min">{scheduleSlots * scheduleSlotMins}m</span>
+                    <button className="slot-step-btn" onClick={() => setScheduleSlots(s => Math.min(24,s+1))}>+</button>
+                  </div>
+                </div>
+              </>
+            )}
+
             <div className="sheet-actions">
               <button className="btn-sheet-cancel" onClick={() => setScheduleTask(null)}>Cancel</button>
               <button className="btn-sheet-all" onClick={saveSchedule}>Schedule</button>

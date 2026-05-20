@@ -931,7 +931,7 @@ export default function TaskTimer() {
       if (data.error) throw new Error(data.error);
       if (data.tasks?.length) setTasks(prev => [...prev, ...data.tasks]);
       showSync(`✓ ${data.imported} tasks imported`, "ok");
-    } catch(err: any) {
+    } catch(err) {
       showSync("Trello sync failed", "err");
     }
     setTrelloSyncing(false);

@@ -416,7 +416,11 @@ export default function TaskTimer() {
   // ── TIMER ─────────────────────────────────────────────────────
   async function startTask(task) {
     if (activeId) return;
-    const secs = (task.remaining_mins || task.slot_minutes || 15) * 60;
+    // Full duration = all slots × slot_minutes
+    const totalMins = task.remaining_mins
+      ? task.remaining_mins
+      : (task.estimated_slots || 1) * (task.slot_minutes || 15);
+    const secs = totalMins * 60;
     const newActual = (task.actual_slots || 0) + 1;
     setActiveId(task.id); setSecsLeft(secs); setTotalSecs(secs);
     sessionStart.current = new Date().toISOString();
@@ -452,7 +456,8 @@ export default function TaskTimer() {
     stopAlarm();
     const task = tasks.find(t => t.id===activeId); if(!task) return;
     const slotSecs = (task.slot_minutes||15)*60;
-    setSecsLeft(slotSecs); setTotalSecs(slotSecs);
+    setSecsLeft(prev => prev + slotSecs);
+    setTotalSecs(prev => prev + slotSecs);
     const newActual = task.actual_slots+1;
     setTasks(prev => prev.map(t => t.id===activeId?{...t,actual_slots:newActual}:t));
     await updateTask(activeId,{actual_slots:newActual});
@@ -683,7 +688,7 @@ export default function TaskTimer() {
         {/* TIMER OVERLAY */}
         <div className={`timer-overlay${activeId?"":" off"}`}>
           <div className="timer-task-name">{activeTask?.name}</div>
-          <div className="timer-slot-info">slot {activeTask?.actual_slots} · {activeTask?.slot_minutes}min</div>
+          <div className="timer-slot-info">{activeTask ? `${activeTask.estimated_slots > 1 ? activeTask.estimated_slots + " × " : ""}${activeTask.slot_minutes}min${activeTask.estimated_slots > 1 ? " = " + (activeTask.estimated_slots * activeTask.slot_minutes) + "min total" : ""}` : ""}</div>
 
           {/* Ring — hidden during alarm */}
           {!alarmOn && (
@@ -692,8 +697,27 @@ export default function TaskTimer() {
                 <svg viewBox="0 0 100 100">
                   <circle className="ring-bg" cx="50" cy="50" r="44"/>
                   <circle className={`ring-prog${secsLeft<60?" urgent":""}`} cx="50" cy="50" r="44" strokeDasharray="276.46" strokeDashoffset={ringOffset}/>
+                  {/* Slot segment markers */}
+                  {activeTask && activeTask.estimated_slots > 1 && Array.from({length: activeTask.estimated_slots - 1}, (_, i) => {
+                    const angle = ((i + 1) / activeTask.estimated_slots) * 360 - 90;
+                    const rad = angle * Math.PI / 180;
+                    const x1 = 50 + 38 * Math.cos(rad);
+                    const y1 = 50 + 38 * Math.sin(rad);
+                    const x2 = 50 + 50 * Math.cos(rad);
+                    const y2 = 50 + 50 * Math.sin(rad);
+                    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--bg)" strokeWidth="2"/>;
+                  })}
                 </svg>
-                <div className="ring-digits">{fmtSecs(secsLeft)}</div>
+                <div className="ring-digits">
+                  <div style={{textAlign:"center"}}>
+                    <div style={{fontSize:44,fontWeight:700,letterSpacing:-2,lineHeight:1}}>{fmtSecs(secsLeft)}</div>
+                    {activeTask?.estimated_slots > 1 && (
+                      <div style={{fontSize:11,color:"var(--muted)",marginTop:4}}>
+                        {activeTask.estimated_slots} × {activeTask.slot_minutes}min
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               <div className="timer-btns">
                 <button className="btn-more" onClick={addMoreTime}>+slot<br/><span style={{fontSize:10,color:"#888"}}>more time</span></button>

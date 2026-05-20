@@ -451,6 +451,13 @@ export default function TaskTimer() {
   const [intention, setIntention]     = useState({ show_up_as: "", one_goal: "", grateful_for: "" });
   const [intentionSaving, setIntentionSaving] = useState(false);
 
+  // Sprint
+  const [sprintOpen, setSprintOpen]       = useState(false);   // setup sheet
+  const [sprintActive, setSprintActive]   = useState(false);   // full screen sprint
+  const [sprintEndTime, setSprintEndTime] = useState("");       // HH:MM string
+  const [sprintTaskIds, setSprintTaskIds] = useState([]);       // selected task ids
+  const [sprintPickerOpen, setSprintPickerOpen] = useState(false);
+
   // Quick capture
   const [quickInput, setQuickInput] = useState("");
   const [captureMsg, setCaptureMsg] = useState("");
@@ -548,6 +555,14 @@ export default function TaskTimer() {
   const ss           = Math.floor((diffMs % 60000) / 1000);
   const countdownStr = hh > 0 ? `${hh}:${pad(mm)}:${pad(ss)}` : `${pad(mm)}:${pad(ss)}`;
   const urgent       = diffMs < 15 * 60 * 1000 && diffMs > 0;
+
+  // Time left until midnight
+  const midnight     = new Date(now); midnight.setHours(23,59,59,999);
+  const midnightMs   = Math.max(0, midnight - now);
+  const midnightH    = Math.floor(midnightMs / 3600000);
+  const midnightM    = Math.floor((midnightMs % 3600000) / 60000);
+  const midnightStr  = `${midnightH}h ${pad(midnightM)}m`;
+  const midnightSlots15 = Math.floor(midnightMs / 60000 / 15);
 
   // Budget for active day
   const dayTasks   = tasks.filter(t => t.scheduled_date === activeDay && !t.done);
@@ -896,6 +911,60 @@ export default function TaskTimer() {
       " · " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
 
+  // ── SPRINT ────────────────────────────────────────────────────
+  function openSprintSetup() {
+    // Default end time = 1 hour from now
+    const d = new Date(now);
+    d.setHours(d.getHours() + 1, 0, 0, 0);
+    setSprintEndTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    setSprintTaskIds([]);
+    setSprintOpen(true);
+  }
+
+  function getSprintDeadline() {
+    if (!sprintEndTime) return null;
+    const [h, m] = sprintEndTime.split(":").map(Number);
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d;
+  }
+
+  function getSprintDiffMs() {
+    const sd = getSprintDeadline();
+    if (!sd) return 0;
+    return Math.max(0, sd - now);
+  }
+
+  function startSprint() {
+    if (!sprintTaskIds.length) return;
+    setSprintOpen(false);
+    setSprintActive(true);
+  }
+
+  function toggleSprintTask(id) {
+    setSprintTaskIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  function endSprint() {
+    setSprintActive(false);
+    setSprintTaskIds([]);
+  }
+
+  const sprintDiffMs   = getSprintDiffMs();
+  const sprintH        = Math.floor(sprintDiffMs / 3600000);
+  const sprintM        = Math.floor((sprintDiffMs % 3600000) / 60000);
+  const sprintS        = Math.floor((sprintDiffMs % 60000) / 1000);
+  const sprintStr      = sprintH > 0 ? `${sprintH}:${pad(sprintM)}:${pad(sprintS)}` : `${pad(sprintM)}:${pad(sprintS)}`;
+  const sprintSlots    = Math.floor(sprintDiffMs / 60000 / 15);
+  const sprintUrgent   = sprintDiffMs < 5 * 60 * 1000 && sprintDiffMs > 0;
+  const sprintTasks    = tasks.filter(t => sprintTaskIds.includes(t.id));
+  const sprintTodo     = sprintTasks.filter(t => !t.done && !t.partial);
+  const sprintDone     = sprintTasks.filter(t => t.done);
+  const sprintPartial  = sprintTasks.filter(t => t.partial && !t.done);
+  const sprintUsedMins = sprintTasks.filter(t => !t.done).reduce((a,t) => a + t.estimated_slots * t.slot_minutes, 0);
+  const sprintAvailMins = Math.round(sprintDiffMs / 60000);
+  const sprintOver     = sprintUsedMins > sprintAvailMins;
+
   // ── RENDER HELPERS ────────────────────────────────────────────
   function buildPips(task) {
     const total = Math.max(task.estimated_slots, task.actual_slots || 0);
@@ -1003,10 +1072,10 @@ export default function TaskTimer() {
               <div className="slots-avail"><strong>{slots5}</strong> × 5min &nbsp;·&nbsp; <strong>{Math.round(availMins)}</strong>min left</div>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>
-              {/* Slot countdown */}
-              <div style={{textAlign:"right"}}>
-                <div style={{fontSize:22,fontWeight:700,color:"var(--red)",lineHeight:1}}>{slots15}</div>
-                <div style={{fontSize:9,color:"var(--muted)",fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>15min slots</div>
+              {/* Midnight countdown */}
+              <div style={{textAlign:"right",cursor:"pointer"}} onClick={openSprintSetup} title="Start sprint">
+                <div style={{fontSize:22,fontWeight:700,color:"var(--text)",lineHeight:1}}>{midnightStr}</div>
+                <div style={{fontSize:9,color:"var(--muted)",fontWeight:600,letterSpacing:".06em",textTransform:"uppercase"}}>{midnightSlots15} slots left · tap to sprint</div>
               </div>
               <div style={{display:"flex",gap:4,alignItems:"center"}}>
                 <div className={`sync-status${syncType ? " "+syncType : ""}`} style={{fontSize:9}}>{syncStatus || "● live"}</div>
@@ -1497,6 +1566,136 @@ export default function TaskTimer() {
             <div style={{marginTop:12}}>
               <button className="btn-sheet-cancel" style={{width:"100%"}} onClick={() => setRecapOpen(false)}>Close</button>
             </div>
+          </div>
+        </div>
+
+        {/* SPRINT SETUP SHEET */}
+        <div className={`sheet-backdrop${sprintOpen?"":" hidden"}`} onClick={e => e.target===e.currentTarget&&setSprintOpen(false)}>
+          <div className="sheet">
+            <div className="sheet-title">⚡ Start a sprint</div>
+            <div className="sheet-sub">Set your end time, pick your tasks. Go.</div>
+
+            {/* End time picker */}
+            <div style={{marginBottom:16}}>
+              <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:8}}>Sprint until</div>
+              <div style={{display:"flex",gap:8,alignItems:"center"}}>
+                <input type="time" value={sprintEndTime} onChange={e => setSprintEndTime(e.target.value)}
+                  style={{background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:8,padding:"8px 12px",fontFamily:"'Inter',sans-serif",fontSize:16,fontWeight:700,color:"var(--text)",outline:"none"}}/>
+                <div style={{fontSize:12,color:"var(--muted)"}}>
+                  {sprintDiffMs > 0 && <span><strong style={{color:"var(--text)"}}>{sprintSlots}</strong> × 15min slots</span>}
+                </div>
+              </div>
+            </div>
+
+            {/* Task picker — today + pool */}
+            <div style={{fontSize:12,fontWeight:600,color:"var(--text)",marginBottom:8}}>Pick your tasks</div>
+            {[...tasks.filter(t => t.scheduled_date === today && !t.done), ...tasks.filter(t => (!t.scheduled_date || !weekDays.includes(t.scheduled_date)) && !t.done)].map(task => {
+              const selected = sprintTaskIds.includes(task.id);
+              const bucketColor = task.bucket==="HOME"?"var(--green)":task.bucket==="SELF"?"var(--purple)":task.bucket==="WORK"?"var(--orange)":"var(--red)";
+              return (
+                <div key={task.id} onClick={() => toggleSprintTask(task.id)}
+                  style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",marginBottom:6,borderRadius:10,border:`1.5px solid ${selected?"var(--red)":"var(--border)"}`,background:selected?"var(--red-light)":"#fff",cursor:"pointer"}}>
+                  <div style={{width:8,height:8,borderRadius:2,background:bucketColor,flexShrink:0}}/>
+                  <span style={{flex:1,fontSize:13,fontWeight:500}}>{task.name}</span>
+                  <span style={{fontSize:11,color:"var(--muted)"}}>{task.estimated_slots * task.slot_minutes}min</span>
+                  <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${selected?"var(--red)":"var(--border)"}`,background:selected?"var(--red)":"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:"#fff",flexShrink:0}}>{selected?"✓":""}</div>
+                </div>
+              );
+            })}
+
+            {sprintOver && <div style={{fontSize:11,color:"var(--orange)",fontWeight:600,marginBottom:8}}>⚠️ You've picked more than your sprint time allows</div>}
+
+            <div className="sheet-actions" style={{marginTop:12}}>
+              <button className="btn-sheet-cancel" onClick={() => setSprintOpen(false)}>Cancel</button>
+              <button className="btn-sheet-all" onClick={startSprint} style={{opacity:sprintTaskIds.length?1:.4}}>
+                ⚡ Start sprint — {sprintTaskIds.length} tasks
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* SPRINT ACTIVE OVERLAY */}
+        <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:90,display:"flex",flexDirection:"column",opacity:sprintActive?1:0,pointerEvents:sprintActive?"all":"none",transition:"opacity .3s"}}>
+          {/* Sprint header */}
+          <div style={{padding:"16px 20px 12px",borderBottom:"1px solid var(--border)",background:"var(--bg)"}}>
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:3}}>Sprint ends</div>
+                <div style={{fontSize:36,fontWeight:700,letterSpacing:-1,lineHeight:1,color:sprintUrgent?"var(--orange)":"var(--red)",animation:sprintUrgent?"pulse .9s ease-in-out infinite":"none"}}>{sprintStr}</div>
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}><strong style={{color:"var(--text)"}}>{sprintSlots}</strong> × 15min slots left</div>
+              </div>
+              <button onClick={endSprint} style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:8,padding:"6px 12px",fontSize:12,fontWeight:600,color:"var(--muted)",cursor:"pointer",fontFamily:"'Inter',sans-serif",marginTop:4}}>End sprint</button>
+            </div>
+            {/* Sprint budget bar */}
+            <div style={{display:"flex",alignItems:"center",gap:10,marginTop:10}}>
+              <div style={{flex:1,height:5,background:"var(--border)",borderRadius:99,overflow:"hidden"}}>
+                <div style={{height:"100%",borderRadius:99,background:sprintOver?"var(--orange)":"var(--red)",width:`${sprintAvailMins>0?Math.min((sprintUsedMins/sprintAvailMins)*100,100):0}%`,transition:"width .4s"}}/>
+              </div>
+              <div style={{fontSize:11,color:"var(--muted)",whiteSpace:"nowrap"}}><strong style={{color:"var(--text)"}}>{sprintUsedMins}min</strong> of <strong style={{color:"var(--text)"}}>{sprintAvailMins}min</strong></div>
+            </div>
+          </div>
+
+          {/* Sprint task list */}
+          <div style={{flex:1,overflowY:"auto",padding:"12px 20px",display:"flex",flexDirection:"column",gap:7}}>
+            {sprintTodo.length === 0 && sprintDone.length > 0 && (
+              <div style={{textAlign:"center",padding:"40px 20px",fontSize:15,fontWeight:700,color:"var(--green)"}}>🎉 Sprint complete!</div>
+            )}
+
+            {/* Active tasks */}
+            {sprintTodo.map(task => (
+              <SwipeCard key={task.id}
+                onSwipeLeft={() => setSprintTaskIds(prev => prev.filter(id => id !== task.id))}
+                leftLabel="✕ Remove"
+                rightLabel=""
+              >
+                <div style={{background:"#fff",border:`1.5px solid ${task.id===activeId?"var(--red)":"var(--border)"}`,borderLeft:`4px solid ${task.bucket==="HOME"?"var(--green)":task.bucket==="SELF"?"var(--purple)":task.bucket==="WORK"?"var(--orange)":"var(--red)"}`,borderRadius:14,padding:"11px 13px",display:"flex",alignItems:"center",gap:10,background:task.id===activeId?"var(--red-light)":"#fff"}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{task.name}</div>
+                    <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>{task.estimated_slots} × {task.slot_minutes}min</div>
+                  </div>
+                  <div style={{flexShrink:0}}>
+                    {task.id === activeId
+                      ? <span style={{fontSize:10,color:"var(--red)",fontWeight:700}}>ACTIVE</span>
+                      : <button className="btn-start" onClick={() => startTask(task)}>{task.partial?"RESUME":"START"}</button>}
+                  </div>
+                </div>
+              </SwipeCard>
+            ))}
+
+            {sprintPartial.map(task => (
+              <div key={task.id} style={{background:"var(--orange-light)",border:"1.5px solid var(--orange)",borderRadius:14,padding:"11px 13px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:15}}>🔄</span>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontSize:14,fontWeight:600,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{task.name}</div>
+                  <div style={{fontSize:11,color:"var(--orange)",marginTop:2}}>~{task.remaining_mins}min left</div>
+                </div>
+                <button className="btn-start" onClick={() => startTask(task)}>RESUME</button>
+              </div>
+            ))}
+
+            {/* Done tasks — collapsed */}
+            {sprintDone.length > 0 && (
+              <div style={{marginTop:8}}>
+                <div style={{fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:".08em",color:"var(--muted)",marginBottom:6}}>✓ Done</div>
+                {sprintDone.map(task => (
+                  <div key={task.id} style={{display:"flex",alignItems:"center",gap:8,padding:"5px 10px",marginBottom:3,borderRadius:8,background:"var(--surface)",opacity:.6}}>
+                    <span style={{fontSize:12,color:"var(--green)"}}>✓</span>
+                    <span style={{fontSize:12,color:"var(--muted)",textDecoration:"line-through",flex:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{task.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Quick capture inside sprint */}
+          <div style={{padding:"10px 20px 16px",borderTop:"1px solid var(--border)",background:"var(--bg)"}}>
+            <div style={{fontSize:10,textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:6}}>💡 Jot a task — stay focused</div>
+            <div style={{display:"flex",gap:8}}>
+              <input className="input-quick" value={quickInput} onChange={e => setQuickInput(e.target.value)}
+                onKeyDown={e => e.key==="Enter"&&quickCapture()} placeholder="New task to remember…"/>
+              <button className="btn-capture" onClick={quickCapture}>Add</button>
+            </div>
+            {captureMsg && <div className="capture-confirm">{captureMsg}</div>}
           </div>
         </div>
 

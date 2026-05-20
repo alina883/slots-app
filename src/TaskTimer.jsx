@@ -279,6 +279,8 @@ export default function TaskTimer() {
   const [alarmOn, setAlarmOn]     = useState(false);
   const alarmRef                  = useRef(null);
   const sessionStart              = useRef(null);
+  const timerStartedAt            = useRef(null); // wall-clock time when timer started
+  const timerStartSecs            = useRef(0);    // secsLeft when timer started
 
   // Quick capture
   const [qcInput, setQcInput]     = useState("");
@@ -286,8 +288,28 @@ export default function TaskTimer() {
 
   // ── INTERVALS ─────────────────────────────────────────────────
   useInterval(() => setNow(new Date()), 1000);
-  useInterval(() => { if (activeId && !alarmOn) setSecsLeft(s => Math.max(0, s-1)); }, activeId && !alarmOn ? 1000 : null);
-  useEffect(() => { if (secsLeft === 0 && activeId && !alarmOn) triggerAlarm(); }, [secsLeft]);
+
+  // Wall-clock based timer — survives screen sleep
+  useInterval(() => {
+    if (!activeId || alarmOn || !timerStartedAt.current) return;
+    const elapsed = Math.floor((Date.now() - timerStartedAt.current) / 1000);
+    const remaining = Math.max(0, timerStartSecs.current - elapsed);
+    setSecsLeft(remaining);
+    if (remaining === 0) triggerAlarm();
+  }, activeId && !alarmOn ? 500 : null); // 500ms for responsiveness on wake
+
+  // Also handle visibility change — recalculate immediately when screen wakes
+  useEffect(() => {
+    function onVisible() {
+      if (!activeId || alarmOn || !timerStartedAt.current) return;
+      const elapsed = Math.floor((Date.now() - timerStartedAt.current) / 1000);
+      const remaining = Math.max(0, timerStartSecs.current - elapsed);
+      setSecsLeft(remaining);
+      if (remaining === 0) triggerAlarm();
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [activeId, alarmOn]);
 
   // ── LOAD ──────────────────────────────────────────────────────
   useEffect(() => { loadTasks(); }, []);
@@ -426,19 +448,25 @@ export default function TaskTimer() {
   // ── TIMER ─────────────────────────────────────────────────────
   async function startTask(task) {
     if (activeId) return;
-    // Full duration = all slots × slot_minutes
     const totalMins = task.remaining_mins
       ? task.remaining_mins
       : (task.estimated_slots || 1) * (task.slot_minutes || 15);
     const secs = totalMins * 60;
     const newActual = (task.actual_slots || 0) + 1;
+    // Record wall-clock start for sleep-safe countdown
+    timerStartedAt.current = Date.now();
+    timerStartSecs.current = secs;
     setActiveId(task.id); setSecsLeft(secs); setTotalSecs(secs);
     sessionStart.current = new Date().toISOString();
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, actual_slots: newActual, partial: false, remaining_mins: null } : t));
     await updateTask(task.id, { actual_slots: newActual, partial: false, remaining_mins: null });
   }
 
-  function stopTimer() { setActiveId(null); setSecsLeft(0); setAlarmOn(false); if (alarmRef.current) { clearInterval(alarmRef.current); alarmRef.current = null; } }
+  function stopTimer() {
+    setActiveId(null); setSecsLeft(0); setAlarmOn(false);
+    timerStartedAt.current = null; timerStartSecs.current = 0;
+    if (alarmRef.current) { clearInterval(alarmRef.current); alarmRef.current = null; }
+  }
 
   function triggerAlarm() {
     setAlarmOn(true);
@@ -466,6 +494,8 @@ export default function TaskTimer() {
     stopAlarm();
     const task = tasks.find(t => t.id===activeId); if(!task) return;
     const slotSecs = (task.slot_minutes||15)*60;
+    // Extend the wall-clock reference by one slot
+    timerStartSecs.current = timerStartSecs.current + slotSecs;
     setSecsLeft(prev => prev + slotSecs);
     setTotalSecs(prev => prev + slotSecs);
     const newActual = task.actual_slots+1;

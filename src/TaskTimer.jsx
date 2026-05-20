@@ -272,7 +272,8 @@ export default function TaskTimer() {
   // Sheets
   const [poolOpen, setPoolOpen]     = useState(false);
   const [trelloOpen, setTrelloOpen] = useState(false);
-  const [selectedQuick, setSelectedQuick] = useState({}); // { "task name": true }
+  const [selectedQuick, setSelectedQuick] = useState({});
+  const [openCats, setOpenCats]           = useState({});
   const [trelloCards, setTrelloCards] = useState([]);
   const [trelloLoading, setTrelloLoading] = useState(false);
   const [trelloSelected, setTrelloSelected] = useState({});
@@ -627,18 +628,33 @@ export default function TaskTimer() {
           <div className="sheet">
             <div className="sheet-title">🗂 Task pool</div>
             <div className="sheet-sub">Tap tasks to add to your sprint</div>
-            {QUICK_TASKS.map(cat => (
-              <div key={cat.category}>
-                <div className="cat-label">{cat.category}</div>
-                {cat.tasks.map(t => (
-                  <div key={t.name} className="quick-task-row" onClick={()=>toggleQuick(t.name)}>
-                    <span className="quick-task-name">{t.name}</span>
-                    <span className="quick-task-time">{t.slots > 1 ? `${t.slots} × ` : ""}{t.mins}min</span>
-                    <div className={`qt-check${selectedQuick[t.name]?" on":""}`}>{selectedQuick[t.name]?"✓":""}</div>
+            {QUICK_TASKS.map(cat => {
+              const catSelected = cat.tasks.filter(t => selectedQuick[t.name]).length;
+              const isOpen = openCats[cat.category];
+              return (
+                <div key={cat.category} style={{marginBottom:2}}>
+                  <div
+                    onClick={() => setOpenCats(p => ({...p, [cat.category]: !p[cat.category]}))}
+                    style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 0",cursor:"pointer",borderBottom:"1px solid var(--border)"}}
+                  >
+                    <span style={{fontSize:13,fontWeight:700}}>{cat.category}</span>
+                    <div style={{display:"flex",alignItems:"center",gap:8}}>
+                      {catSelected > 0 && (
+                        <span style={{background:"var(--red)",color:"#fff",borderRadius:99,fontSize:10,fontWeight:700,padding:"1px 7px"}}>{catSelected} selected</span>
+                      )}
+                      <span style={{fontSize:12,color:"var(--muted)",display:"inline-block",transition:"transform .2s",transform:isOpen?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+                    </div>
                   </div>
-                ))}
-              </div>
-            ))}
+                  {isOpen && cat.tasks.map(t => (
+                    <div key={t.name} className="quick-task-row" onClick={() => toggleQuick(t.name)}>
+                      <span className="quick-task-name">{t.name}</span>
+                      <span className="quick-task-time">{t.slots > 1 ? `${t.slots} × ` : ""}{t.mins}min</span>
+                      <div className={`qt-check${selectedQuick[t.name]?" on":""}`}>{selectedQuick[t.name]?"✓":""}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
             <div className="sheet-actions">
               <button className="btn-cancel" onClick={()=>{setPoolOpen(false);setSelectedQuick({});}}>Cancel</button>
               <button className="btn-confirm" onClick={addQuickTasks}>

@@ -135,25 +135,27 @@ const css = `
   /* ADD STRIP */
   .add-strip { flex-shrink: 0; border-top: 1px solid var(--border); background: var(--bg); }
 
-  .add-row { display: flex; gap: 0; }
-  .input-task { flex: 1; background: #fff; border: none; border-top: none; padding: 12px 14px; color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px; outline: none; border-right: 1px solid var(--border); }
+  /* Row 1: input + add */
+  .add-row { display: flex; border-bottom: 1px solid var(--border); }
+  .input-task { flex: 1; background: #fff; border: none; padding: 12px 14px; color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px; outline: none; min-width: 0; }
   .input-task::placeholder { color: var(--muted); }
-
-  .slot-controls-inline { display: flex; align-items: center; background: var(--surface); }
-  .slot-toggle-sm { display: flex; }
-  .slot-toggle-sm button { background: none; border: none; border-right: 1px solid var(--border); padding: 0 9px; font-size: 11px; font-weight: 700; color: var(--muted); cursor: pointer; height: 100%; font-family: 'Inter', sans-serif; }
-  .slot-toggle-sm button.on { background: var(--red); color: #fff; }
-  .slot-step { background: none; border: none; width: 28px; font-size: 16px; cursor: pointer; color: var(--text); height: 100%; display: flex; align-items: center; justify-content: center; }
-  .slot-step:active { background: var(--border); }
-  .slot-val { font-size: 13px; font-weight: 700; color: var(--red); min-width: 18px; text-align: center; }
-  .slot-unit { font-size: 10px; color: var(--muted); padding-right: 6px; }
-
-  .btn-add-task { background: var(--red); color: #fff; border: none; padding: 0 16px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif; white-space: nowrap; }
+  .btn-add-task { background: var(--red); color: #fff; border: none; padding: 0 20px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif; white-space: nowrap; flex-shrink: 0; }
   .btn-add-task:active { background: var(--red-dark); }
 
-  /* SOURCE BUTTONS */
-  .source-btns { display: flex; gap: 0; border-top: 1px solid var(--border); }
-  .btn-source { flex: 1; background: var(--surface); border: none; border-right: 1px solid var(--border); padding: 10px 6px; font-size: 11px; font-weight: 600; color: var(--muted); cursor: pointer; font-family: 'Inter', sans-serif; text-align: center; transition: background .15s, color .15s; }
+  /* Row 2: slot controls */
+  .slot-controls-inline { display: flex; align-items: center; padding: 7px 14px; gap: 8px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .slot-toggle-sm { display: flex; background: #fff; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex-shrink: 0; }
+  .slot-toggle-sm button { background: none; border: none; padding: 5px 10px; font-size: 11px; font-weight: 700; color: var(--muted); cursor: pointer; font-family: 'Inter', sans-serif; }
+  .slot-toggle-sm button.on { background: var(--red); color: #fff; }
+  .slot-step { background: none; border: none; width: 28px; height: 28px; font-size: 16px; cursor: pointer; color: var(--text); display: flex; align-items: center; justify-content: center; border-radius: 6px; }
+  .slot-step:active { background: var(--border); }
+  .slot-val { font-size: 14px; font-weight: 700; color: var(--red); min-width: 20px; text-align: center; }
+  .slot-unit { font-size: 11px; color: var(--muted); }
+  .slot-label { font-size: 11px; color: var(--muted); flex: 1; }
+
+  /* Row 3: source buttons */
+  .source-btns { display: flex; }
+  .btn-source { flex: 1; background: var(--surface); border: none; border-right: 1px solid var(--border); padding: 11px 6px; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; font-family: 'Inter', sans-serif; text-align: center; transition: background .15s; }
   .btn-source:last-child { border-right: none; }
   .btn-source:active { background: var(--border); }
   .btn-source.loading { opacity: .6; pointer-events: none; }
@@ -605,17 +607,18 @@ export default function TaskTimer() {
               placeholder="Type a task…"
               autoComplete="off"
             />
-            <div className="slot-controls-inline">
-              <div className="slot-toggle-sm">
-                <button className={slotMins===5?"on":""} onClick={()=>setSlotMins(5)}>5m</button>
-                <button className={slotMins===15?"on":""} onClick={()=>setSlotMins(15)}>15m</button>
-              </div>
-              <button className="slot-step" onClick={()=>setSlotCount(s=>Math.max(1,s-1))}>−</button>
-              <span className="slot-val">{slotCount}</span>
-              <span className="slot-unit">{slotCount*slotMins}m</span>
-              <button className="slot-step" onClick={()=>setSlotCount(s=>Math.min(24,s+1))}>+</button>
-            </div>
             <button className="btn-add-task" onClick={()=>addTask()}>Add</button>
+          </div>
+          <div className="slot-controls-inline">
+            <span className="slot-label">Slots:</span>
+            <div className="slot-toggle-sm">
+              <button className={slotMins===5?"on":""} onClick={()=>setSlotMins(5)}>5m</button>
+              <button className={slotMins===15?"on":""} onClick={()=>setSlotMins(15)}>15m</button>
+            </div>
+            <button className="slot-step" onClick={()=>setSlotCount(s=>Math.max(1,s-1))}>−</button>
+            <span className="slot-val">{slotCount}</span>
+            <span className="slot-unit">{slotCount*slotMins}m total</span>
+            <button className="slot-step" onClick={()=>setSlotCount(s=>Math.min(24,s+1))}>+</button>
           </div>
           <div className="source-btns">
             <button className="btn-source" onClick={()=>setPoolOpen(true)}>🗂 Task pool</button>

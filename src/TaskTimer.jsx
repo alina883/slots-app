@@ -185,7 +185,7 @@ const css = `
   .trello-list-tag { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; background: var(--surface); border-radius: 4px; padding: 2px 5px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
 
   /* TIMER OVERLAY */
-  .timer-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 200; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; transition: opacity .3s; }
+  .timer-overlay { position: fixed; inset: 0; background: var(--bg); z-index: 200; transition: background .3s; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; transition: opacity .3s; }
   .timer-overlay.off { opacity: 0; pointer-events: none; }
   .timer-task-name { font-size: 20px; font-weight: 700; color: var(--red); text-align: center; margin-bottom: 4px; }
   .timer-slot-info { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 22px; }
@@ -208,17 +208,8 @@ const css = `
   .btn-qc { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; padding: 9px 13px; font-size: 13px; font-weight: 600; color: var(--text); cursor: pointer; font-family: 'Inter', sans-serif; }
   .qc-confirm { font-size: 12px; color: var(--green); font-weight: 600; margin-top: 5px; min-height: 16px; }
 
-  /* ALARM */
-  .alarm-overlay { position: fixed; inset: 0; z-index: 300; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; transition: opacity .2s; }
-  .alarm-overlay.off { opacity: 0; pointer-events: none; }
-  .alarm-overlay.on { animation: alarm-flash .4s ease infinite; }
+  /* ALARM — handled inline inside timer overlay */
   @keyframes alarm-flash { 0%,100%{background:rgba(214,59,47,.04)} 50%{background:rgba(214,59,47,.14)} }
-  .alarm-title { font-size: 26px; font-weight: 700; color: var(--red); }
-  .alarm-sub { font-size: 13px; color: var(--muted); text-align: center; padding: 0 24px; }
-  .alarm-btns { display: flex; flex-direction: column; gap: 9px; width: 280px; }
-  .btn-a-done { background: var(--green); color: #fff; border: none; border-radius: 14px; padding: 16px; font-size: 16px; font-weight: 700; cursor: pointer; font-family: 'Inter', sans-serif; }
-  .btn-a-more { background: #fff; border: 1px solid var(--border); color: var(--text); border-radius: 14px; padding: 13px; font-size: 13px; cursor: pointer; text-align: center; font-family: 'Inter', sans-serif; }
-  .btn-a-interrupt { background: var(--orange-light); border: 1.5px solid var(--orange); color: var(--orange); border-radius: 14px; padding: 13px; font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; font-family: 'Inter', sans-serif; }
   .loading-state { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 0; }
 `;
 
@@ -617,7 +608,7 @@ export default function TaskTimer() {
             </div>
             <button className="slot-step" onClick={()=>setSlotCount(s=>Math.max(1,s-1))}>−</button>
             <span className="slot-val">{slotCount}</span>
-            <span className="slot-unit">{slotCount*slotMins}m total</span>
+            <span className="slot-unit">{slotCount*slotMins >= 60 ? Math.floor(slotCount*slotMins/60)+"h"+(slotCount*slotMins%60?" "+slotCount*slotMins%60+"m":"") : slotCount*slotMins+"min"}</span>
             <button className="slot-step" onClick={()=>setSlotCount(s=>Math.min(24,s+1))}>+</button>
           </div>
           <div className="source-btns">
@@ -693,19 +684,38 @@ export default function TaskTimer() {
         <div className={`timer-overlay${activeId?"":" off"}`}>
           <div className="timer-task-name">{activeTask?.name}</div>
           <div className="timer-slot-info">slot {activeTask?.actual_slots} · {activeTask?.slot_minutes}min</div>
-          <div className="ring-wrap">
-            <svg viewBox="0 0 100 100">
-              <circle className="ring-bg" cx="50" cy="50" r="44"/>
-              <circle className={`ring-prog${secsLeft<60?" urgent":""}`} cx="50" cy="50" r="44" strokeDasharray="276.46" strokeDashoffset={ringOffset}/>
-            </svg>
-            <div className="ring-digits">{fmtSecs(secsLeft)}</div>
-          </div>
-          <div className="timer-btns">
-            <button className="btn-more" onClick={addMoreTime}>+slot<br/><span style={{fontSize:10,color:"#888"}}>more time</span></button>
-            <button className="btn-done-t" onClick={completeTask}>Done ✓</button>
-          </div>
-          <button className="btn-interrupt" onClick={markInterrupted}>⚠️ Got interrupted</button>
-          <div className="quick-capture">
+
+          {/* Ring — hidden during alarm */}
+          {!alarmOn && (
+            <>
+              <div className="ring-wrap">
+                <svg viewBox="0 0 100 100">
+                  <circle className="ring-bg" cx="50" cy="50" r="44"/>
+                  <circle className={`ring-prog${secsLeft<60?" urgent":""}`} cx="50" cy="50" r="44" strokeDasharray="276.46" strokeDashoffset={ringOffset}/>
+                </svg>
+                <div className="ring-digits">{fmtSecs(secsLeft)}</div>
+              </div>
+              <div className="timer-btns">
+                <button className="btn-more" onClick={addMoreTime}>+slot<br/><span style={{fontSize:10,color:"#888"}}>more time</span></button>
+                <button className="btn-done-t" onClick={completeTask}>Done ✓</button>
+              </div>
+              <button className="btn-interrupt" onClick={markInterrupted}>⚠️ Got interrupted</button>
+            </>
+          )}
+
+          {/* Alarm — shown instead of ring */}
+          {alarmOn && (
+            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12,width:"100%",maxWidth:300}}>
+              <div style={{fontSize:48,marginBottom:4}}>⏰</div>
+              <div style={{fontSize:18,fontWeight:700,color:"var(--text)",textAlign:"center"}}>"{activeTask?.name}"</div>
+              <div style={{fontSize:13,color:"var(--muted)"}}>Slot done — what's the situation?</div>
+              <button className="btn-done-t" style={{width:"100%",padding:16,fontSize:17,borderRadius:14,marginTop:8}} onClick={completeTask}>Done ✓</button>
+              <button onClick={addMoreTime} style={{background:"none",border:"none",fontSize:14,color:"var(--text)",cursor:"pointer",fontFamily:"'Inter',sans-serif",fontWeight:600,padding:"4px 0"}}>+slot — still going</button>
+              <button onClick={markInterrupted} style={{background:"none",border:"none",fontSize:13,color:"var(--orange)",cursor:"pointer",fontFamily:"'Inter',sans-serif",fontWeight:600,padding:"4px 0"}}>⚠️ Got interrupted</button>
+            </div>
+          )}
+
+          <div className="quick-capture" style={{marginTop: alarmOn ? 24 : 0}}>
             <div className="qc-label">💡 Jot a task — stay focused</div>
             <div className="qc-row">
               <input className="qc-input" value={qcInput} onChange={e=>setQcInput(e.target.value)}
@@ -716,16 +726,7 @@ export default function TaskTimer() {
           </div>
         </div>
 
-        {/* ALARM */}
-        <div className={`alarm-overlay${alarmOn?" on":" off"}`}>
-          <div className="alarm-title">⏰ Slot done!</div>
-          <div className="alarm-sub">"{activeTask?.name}" — what's the situation?</div>
-          <div className="alarm-btns">
-            <button className="btn-a-done"      onClick={completeTask}>Done ✓</button>
-            <button className="btn-a-more"      onClick={addMoreTime}>+slot — still going</button>
-            <button className="btn-a-interrupt" onClick={markInterrupted}>⚠️ Got interrupted</button>
-          </div>
-        </div>
+
 
       </div>
     </>

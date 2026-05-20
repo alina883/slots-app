@@ -336,6 +336,16 @@ export default function TaskTimer() {
   const budgetPct   = diffMins > 0 ? Math.min((usedMins / diffMins) * 100, 100) : 0;
   const budgetOver  = usedMins > diffMins && diffMins > 0;
 
+  // Midnight countdown
+  const midnight       = new Date(now); midnight.setHours(23, 59, 59, 999);
+  const midnightMs     = Math.max(0, midnight - now);
+  const midnightH      = Math.floor(midnightMs / 3600000);
+  const midnightM      = Math.floor((midnightMs % 3600000) / 60000);
+  const midnightS      = Math.floor((midnightMs % 60000) / 1000);
+  const midnightStr    = `${pad(midnightH)}:${pad(midnightM)}:${pad(midnightS)}`;
+  const daySlots15     = Math.floor(midnightMs / 60000 / 15);
+  const daySlots5      = Math.floor(midnightMs / 60000 / 5);
+
   function applyTime() {
     setEndTime(pickerVal);
     setSprintActive(true);
@@ -501,18 +511,35 @@ export default function TaskTimer() {
 
         {/* HEADER */}
         <div className="header">
-          <div className="header-row">
-            <div className="sprint-time">
-              <div className="sprint-label">{sprintActive ? "sprint ends in" : "sprint"}</div>
-              <div className={`sprint-countdown${urgent?" urgent":""}${!endTime?" idle":""}`}
-                onClick={() => setShowPicker(p => !p)}>
+
+          {/* Day clock — always visible */}
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10}}>
+            <div>
+              <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:2}}>time left today</div>
+              <div style={{fontSize:36,fontWeight:700,letterSpacing:-1,lineHeight:1,color:"var(--text)",fontVariantNumeric:"tabular-nums"}}>{midnightStr}</div>
+              <div style={{fontSize:11,color:"var(--muted)",marginTop:3}}>
+                <strong style={{color:"var(--text)"}}>{daySlots15}</strong> × 15min &nbsp;·&nbsp; <strong style={{color:"var(--text)"}}>{daySlots5}</strong> × 5min slots
+              </div>
+            </div>
+
+            {/* Sprint section — right side */}
+            <div style={{textAlign:"right"}}>
+              <div style={{fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:".1em",color:"var(--muted)",marginBottom:2}}>
+                {sprintActive ? "sprint ends in" : "sprint"}
+              </div>
+              <div
+                style={{fontSize:22,fontWeight:700,letterSpacing:-1,lineHeight:1,cursor:"pointer",color:urgent?"var(--orange)":endTime?"var(--red)":"var(--muted)",animation:urgent?"pulse .9s ease-in-out infinite":"none"}}
+                onClick={() => setShowPicker(p => !p)}
+              >
                 {sprintStr}
               </div>
-              {endTime && <div className="sprint-slots"><strong>{slots15}</strong> × 15min slots left</div>}
-            </div>
-            <div className="header-actions">
+              {endTime && (
+                <div style={{fontSize:11,color:"var(--muted)",marginTop:2}}>
+                  <strong style={{color:"var(--text)"}}>{slots15}</strong> slots left
+                </div>
+              )}
               {sprintActive && (
-                <button className="btn-time" onClick={() => { setEndTime(""); setSprintActive(false); }}>End sprint</button>
+                <button className="btn-time" style={{marginTop:4,fontSize:10,padding:"3px 8px"}} onClick={() => { setEndTime(""); setSprintActive(false); }}>End</button>
               )}
             </div>
           </div>
@@ -528,7 +555,7 @@ export default function TaskTimer() {
           {sprintActive && (
             <div className="budget-wrap">
               <div className="budget-bar"><div className={`budget-fill${budgetOver?" over":""}`} style={{width:budgetPct+"%"}}/></div>
-              <div className="budget-text"><strong>{usedMins}min</strong> assigned · <strong>{Math.round(diffMins)}min</strong> left</div>
+              <div className="budget-text"><strong>{usedMins}min</strong> assigned · <strong>{Math.round(diffMins)}min</strong> left in sprint</div>
             </div>
           )}
         </div>

@@ -451,6 +451,13 @@ export default function TaskTimer() {
   const [intention, setIntention]     = useState({ show_up_as: "", one_goal: "", grateful_for: "" });
   const [intentionSaving, setIntentionSaving] = useState(false);
 
+  // Search
+  const [searchOpen, setSearchOpen]   = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Trello sync
+  const [trelloSyncing, setTrelloSyncing] = useState(false);
+
   // Sprint
   const [sprintOpen, setSprintOpen]       = useState(false);   // setup sheet
   const [sprintActive, setSprintActive]   = useState(false);   // full screen sprint
@@ -911,6 +918,25 @@ export default function TaskTimer() {
       " · " + d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   }
 
+  // ── TRELLO SYNC ───────────────────────────────────────────────
+  async function syncFromTrello() {
+    setTrelloSyncing(true);
+    showSync("Syncing Trello…", "saving", 0);
+    try {
+      const res  = await fetch("https://cdzanvtkqkyexljvovan.supabase.co/functions/v1/trello-sync", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${SUPABASE_KEY}` },
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.tasks?.length) setTasks(prev => [...prev, ...data.tasks]);
+      showSync(`✓ ${data.imported} tasks imported`, "ok");
+    } catch(err: any) {
+      showSync("Trello sync failed", "err");
+    }
+    setTrelloSyncing(false);
+  }
+
   // ── SPRINT ────────────────────────────────────────────────────
   function openSprintSetup() {
     // Default end time = 1 hour from now
@@ -957,6 +983,11 @@ export default function TaskTimer() {
   const sprintStr      = sprintH > 0 ? `${sprintH}:${pad(sprintM)}:${pad(sprintS)}` : `${pad(sprintM)}:${pad(sprintS)}`;
   const sprintSlots    = Math.floor(sprintDiffMs / 60000 / 15);
   const sprintUrgent   = sprintDiffMs < 5 * 60 * 1000 && sprintDiffMs > 0;
+  // Search results
+  const searchResults = searchQuery.trim().length > 1
+    ? tasks.filter(t => t.name.toLowerCase().includes(searchQuery.toLowerCase().trim()) && !t.done)
+    : [];
+
   const sprintTasks    = tasks.filter(t => sprintTaskIds.includes(t.id));
   const sprintTodo     = sprintTasks.filter(t => !t.done && !t.partial);
   const sprintDone     = sprintTasks.filter(t => t.done);
@@ -1092,6 +1123,12 @@ export default function TaskTimer() {
                   }}
                 >
                   Pool {tabCount("pool") > 0 && <span style={{background:"rgba(0,0,0,.15)",borderRadius:99,fontSize:9,padding:"0 3px"}}>{tabCount("pool")}</span>}
+                </button>
+                <button onClick={() => { setSearchOpen(true); setTimeout(()=>document.getElementById("search-input")?.focus(),100); }}
+                  style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:6,padding:"3px 7px",fontSize:13,cursor:"pointer"}}>🔍</button>
+                <button onClick={syncFromTrello} title="Sync from Trello"
+                  style={{background:"var(--surface)",border:"1px solid var(--border)",borderRadius:6,padding:"3px 7px",fontSize:12,cursor:"pointer",opacity:trelloSyncing?.6:1,fontFamily:"'Inter',sans-serif",fontWeight:700,color:"var(--muted)"}}>
+                  {trelloSyncing?"…":"⟳"}
                 </button>
               </div>
             </div>
@@ -1566,6 +1603,46 @@ export default function TaskTimer() {
             <div style={{marginTop:12}}>
               <button className="btn-sheet-cancel" style={{width:"100%"}} onClick={() => setRecapOpen(false)}>Close</button>
             </div>
+          </div>
+        </div>
+
+        {/* SEARCH OVERLAY */}
+        <div style={{position:"fixed",inset:0,background:"var(--bg)",zIndex:200,display:"flex",flexDirection:"column",opacity:searchOpen?1:0,pointerEvents:searchOpen?"all":"none",transition:"opacity .2s"}}>
+          <div style={{padding:"14px 20px",borderBottom:"1px solid var(--border)",display:"flex",gap:10,alignItems:"center"}}>
+            <input
+              id="search-input"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search tasks…"
+              autoComplete="off"
+              style={{flex:1,background:"var(--surface)",border:"1.5px solid var(--border)",borderRadius:10,padding:"10px 14px",fontSize:15,fontFamily:"'Inter',sans-serif",color:"var(--text)",outline:"none"}}
+            />
+            <button onClick={() => { setSearchOpen(false); setSearchQuery(""); }}
+              style={{background:"none",border:"none",fontSize:13,fontWeight:600,color:"var(--muted)",cursor:"pointer",fontFamily:"'Inter',sans-serif",padding:"4px 8px"}}>Cancel</button>
+          </div>
+          <div style={{flex:1,overflowY:"auto",padding:"10px 20px"}}>
+            {searchQuery.trim().length < 2 && (
+              <div style={{textAlign:"center",color:"var(--muted)",fontSize:13,padding:"40px 20px"}}>Start typing to find tasks…</div>
+            )}
+            {searchQuery.trim().length >= 2 && searchResults.length === 0 && (
+              <div style={{textAlign:"center",color:"var(--muted)",fontSize:13,padding:"40px 20px"}}>No tasks found for "{searchQuery}"</div>
+            )}
+            {searchResults.map(task => {
+              const bucketColor = task.bucket==="HOME"?"var(--green)":task.bucket==="SELF"?"var(--purple)":task.bucket==="WORK"?"var(--orange)":"var(--red)";
+              return (
+                <div key={task.id} style={{background:"#fff",border:"1.5px solid var(--border)",borderLeft:`4px solid ${bucketColor}`,borderRadius:12,padding:"11px 13px",marginBottom:8,display:"flex",alignItems:"center",gap:10}}
+                  onClick={() => { setSearchOpen(false); setSearchQuery(""); setActiveDay(task.scheduled_date && weekDays.includes(task.scheduled_date) ? task.scheduled_date : "pool"); }}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:14,fontWeight:600,marginBottom:2}}>{task.name}</div>
+                    <div style={{fontSize:11,color:"var(--muted)"}}>
+                      {task.scheduled_date ? `${dayLabel(task.scheduled_date)} ${shortDate(task.scheduled_date)}` : "Pool"} · {task.bucket} · {task.estimated_slots * task.slot_minutes}min
+                    </div>
+                  </div>
+                  <button className="btn-start" onClick={e => { e.stopPropagation(); setSearchOpen(false); setSearchQuery(""); startTask(task); }}
+                    style={{fontSize:11,padding:"6px 10px"}}>START</button>
+                </div>
+              );
+            })}
           </div>
         </div>
 
